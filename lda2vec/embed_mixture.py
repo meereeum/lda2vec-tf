@@ -105,15 +105,17 @@ class EmbedMixture():
 								   name="doc_proportions")
 
 		if softmax: # probabilize == sum to 1
-			size = w.get_shape().value
-			mask = np.random.random_integers(0, 1, size=size)
-			y = (tf.nn.softmax(w * self.temperature) *
-				 tf.constant(mask, dtype=tf.float32))
-			# like broadcast
-			# http://stackoverflow.com/questions/34362193/how-to-explicitly-broadcast-a-tensor-to-match-anothers-shape-in-tensorflow
-			expander = tf.ones_like(y)
-			norm, y = expander * tf.expand_dims(tf.reduce_sum(y, axis=1), 1)
-			return y / (norm + 1e-7) # avoid div by 0
+			# TODO unclear what purpose masking serves here
+			# size = w.get_shape().value
+			# mask = np.random.random_integers(0, 1, size=size)
+			# y = (tf.nn.softmax(w * self.temperature) * TODO temp is inverse?
+			# 	 tf.constant(mask, dtype=tf.float32))
+			# # like broadcast
+			# # http://stackoverflow.com/questions/34362193/how-to-explicitly-broadcast-a-tensor-to-match-anothers-shape-in-tensorflow
+			# expander = tf.ones_like(y)
+			# norm, y = expander * tf.expand_dims(tf.reduce_sum(y, axis=1), 1)
+			# return y / (norm + 1e-7) # avoid div by 0
+			return tf.nn.softmax(w / self.temperature)
 
 		else:
 			return w
