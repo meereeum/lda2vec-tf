@@ -64,9 +64,9 @@ class EmbedMixture():
 		# 	factors=L.Parameter(factors))
 		# self.weights.W.data[...] /= np.sqrt(n_documents + n_topics)
 		# self.weights /= np.sqrt(n_documents + n_topics)
-		self.weights = tf.Variable( # initialize embedding weights
+		self.W = tf.Variable( # embedding weights
 			tf.random_normal([n_documents, n_topics], mean=0,
-							 stddev=1/tf.sqrt(n_document + n_topics)),
+							 stddev=1 / np.sqrt(n_document + n_topics)),
 				name="doc_embeddings")
 		self.factors=tf.Variable(factors, name="topics") # topic vectors
 
@@ -101,10 +101,10 @@ class EmbedMixture():
 			doc_weights : chainer.Variable
 				Two dimensional topic weights of each document.
 		"""
-		w = tf.nn.embedding_lookup(self.weights, doc_ids,
-								   name="doc_proportions") # embedded docs
+		w = tf.nn.embedding_lookup(self.W, doc_ids, # embedded docs
+								   name="doc_proportions")
 
-		if softmax:
+		if softmax: # probabilize == sum to 1
 			size = w.get_shape().value
 			mask = np.random.random_integers(0, 1, size=size)
 			y = (tf.nn.softmax(w * self.temperature) *
@@ -113,7 +113,7 @@ class EmbedMixture():
 			# http://stackoverflow.com/questions/34362193/how-to-explicitly-broadcast-a-tensor-to-match-anothers-shape-in-tensorflow
 			expander = tf.ones_like(y)
 			norm, y = expander * tf.expand_dims(tf.reduce_sum(y, axis=1), 1)
-			return y / (norm + 1e-7)
+			return y / (norm + 1e-7) # avoid div by 0
 
 		else:
 			return w

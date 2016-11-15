@@ -1,5 +1,4 @@
 from datetime import datetime
-import time
 import os
 
 import numpy as np
@@ -8,15 +7,13 @@ import tensorflow as tf
 from lda2vec import dirichlet_likelihood
 from lda2vec import EmbedMixture
 from lda2vec import NegativeSampling
-# from lda2vec.utils import move
-
 
 
 class LDA2Vec():
 
 	DEFAULTS = {
 		"n_document_topics": 10,
-		"n_units": 256, # embedding size
+		"n_embedding": 256, # embedding size
 
 		"batch_size": 128,
 		"learning_rate": 0.1,
@@ -31,15 +28,18 @@ class LDA2Vec():
 	}
 	RESTORE_KEY = "to_restore"
 
-	def __init__(self, n_corpus, n_documents, n_vocab, #train=True,counts=None
+	def __init__(self, n_documents, n_vocab, #train=True,counts=None
 				 d_hyperparams={}, save_graph_def=True, log_dir="./log"):
 
 		self.__dict__.update(LDA2Vec.DEFAULTS, **d_hyperparams)
 		self.sesh = tf.Session()
 
-		self.mixture = EmbedMixture(n_documents, n_document_topics, n_units,
-									keep_prob=dropout, temperature=temperature)
-		self.sampler = NegativeSampling(n_units, n_vocab, n_samples)
+		self.mixture = EmbedMixture(
+				n_documents, self.n_document_topics, self.n_embedding,
+				keep_prob=self.dropout_ratio, temperature=self.temperature)
+
+		self.sampler = NegativeSampling(
+				self.n_embedding, n_vocab, self.n_samples)
 
 		if not meta_graph: # new model
 			self.datetime = datetime.now().strftime(r"%y%m%d_%H%M")
@@ -47,7 +47,7 @@ class LDA2Vec():
 			# build graph
 			handles = self._buildGraph()
 			for handle in handles: # TODO if use, need to account for loss tuple
-				tf.add_to_collection(LDA2Vec.RESTORE_KEY, handle)
+				tf.add_to_collection(LDA2Vec.RESTORE_KEY, handle) # TODO need to save EmbedMix & Sampler weights
 			self.sesh.run(tf.initialize_all_variables())
 
 		else: # restore saved model
@@ -154,10 +154,9 @@ class LDA2Vec():
 
 		pivot_idx = word_indices[window: -window]
 
-		# if update_only_docs:
-			# TODO ?
-			# pivot = tf.Variable(pivot, trainable=False)
+		# if update_only_docs: TODO ?
 			# pivot.unchain_backward()
+			# tf.stop_gradient(tensor) OR optimizer.minimize(loss, var_list=[your variables])
 
 		doc_at_pivot = doc_ids[window: -window]
 
@@ -210,6 +209,9 @@ class LDA2Vec():
 		feed_dict = {self.n_corpus: len(flattened)}
 		self.sesh.run(self.loss_lda, feed_dict=feed_dict) # assign n_corpus
 
+		now = datetime.now().isoformat()[11:]
+		print("------- Training begin: {} -------\n".format(now))
+
 		for epoch in range(max_epochs):
 			# data = prepare_topics( # TODO
 			# 	cuda.to_cpu(model.mixture.weights.W.data).copy(),
@@ -231,7 +233,7 @@ class LDA2Vec():
 
 			# doc_ids, word_idxs
 			for d, f in utils.chunks(self.batch_size, doc_ids, flattened):
-				t0 = time.time()
+				t0 = datetime.now().timestamp()
 
 				loss_word2vec = self.fit_partial(d, f)
 				loss_lda, _ = self.sesh.run([self.loss_lda, self.train_op])
@@ -243,7 +245,7 @@ class LDA2Vec():
 				msg = ("J:{j:05d} E:{epoch:05d} L_nce:{l_word2vec:1.3e} "
 					   "L_dirichlet:{l_lda:1.3e} R:{rate:1.3e}")
 
-				t1 = time.time()
+				t1 = datetime.now().timestamp()
 				dt = t1 - t0
 				rate = self.batch_size / dt
 				# logs = dict(loss=float(l), epoch=epoch, j=j,
@@ -255,9 +257,12 @@ class LDA2Vec():
 			if verbose:
 				print msg.format(**logs)
 
+		now = datetime.now().isoformat()[11:]
+		print("------- Training end: {} -------\n".format(now))
+
 		if save:
 			outfile = os.path.join(os.path.abspath(outdir),
-								   "{}_lda2vec_{}".format(self.datetime))
+								   "{}_lda2vec".format(self.datetime))
 			saver.save(self.sesh, outfile, global_step=self.step)
 
 		try:
@@ -265,66 +270,3 @@ class LDA2Vec():
 			self.logger.close()
 		except(AttributeError): # not logging
 			pass
-
-
-	# def train(self, X, max_iter=np.inf, max_epochs=np.inf, cross_validate=True,
-	#		   verbose=True, save=False, outdir="./out", plots_outdir="./png",
-	#		   plot_latent_over_time=False):
-	#	 if save:
-	#		 saver = tf.train.Saver(tf.all_variables())
-
-	#	 try:
-	#		 err_train = 0
-	#		 now = datetime.now().isoformat()[11:]
-	#		 print("------- Training begin: {} -------\n".format(now))
-
-	#		 while True:
-	#			 x, _ = X.train.next_batch(self.batch_size)
-	#			 feed_dict = {self.x_in: x, self.dropout_: self.dropout}
-	#			 fetches = [self.x_reconstructed, self.cost, self.global_step, self.train_op]
-	#			 x_reconstructed, cost, i, _ = self.sesh.run(fetches, feed_dict)
-
-	#			 err_train += cost
-
-
-	#			 if i%1000 == 0 and verbose:
-	#				 print("round {} --> avg cost: ".format(i), err_train / i)
-
-	#			 if i%2000 == 0 and verbose:# and i >= 10000:
-	#				 # visualize `n` examples of current minibatch inputs + reconstructions
-	#				 plot.plotSubset(self, x, x_reconstructed, n=10, name="train",
-	#								 outdir=plots_outdir)
-
-	#				 if cross_validate:
-	#					 x, _ = X.validation.next_batch(self.batch_size)
-	#					 feed_dict = {self.x_in: x}
-	#					 fetches = [self.x_reconstructed, self.cost]
-	#					 x_reconstructed, cost = self.sesh.run(fetches, feed_dict)
-
-	#					 print("round {} --> CV cost: ".format(i), cost)
-	#					 plot.plotSubset(self, x, x_reconstructed, n=10, name="cv",
-	#									 outdir=plots_outdir)
-
-	#			 if i >= max_iter or X.train.epochs_completed >= max_epochs:
-	#				 print("final avg cost (@ step {} = epoch {}): {}".format(
-	#					 i, X.train.epochs_completed, err_train / i))
-	#				 now = datetime.now().isoformat()[11:]
-	#				 print("------- Training end: {} -------\n".format(now))
-
-	#				 if save:
-	#					 outfile = os.path.join(os.path.abspath(outdir), "{}_vae_{}".format(
-	#						 self.datetime, "_".join(map(str, self.architecture))))
-	#					 saver.save(self.sesh, outfile, global_step=self.step)
-	#				 try:
-	#					 self.logger.flush()
-	#					 self.logger.close()
-	#				 except(AttributeError): # not logging
-	#					 continue
-	#				 break
-
-	#	 except(KeyboardInterrupt):
-	#		 print("final avg cost (@ step {} = epoch {}): {}".format(
-	#			 i, X.train.epochs_completed, err_train / i))
-	#		 now = datetime.now().isoformat()[11:]
-	#		 print("------- Training end: {} -------\n".format(now))
-	#		 sys.exit(0)
