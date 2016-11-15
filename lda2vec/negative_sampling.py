@@ -102,25 +102,25 @@ class NegativeSampling():
 		self.vocab_size = vocabulary_size
 		self.sample_size = sample_size
 
-		self.W = tf.Variable(
+		self.W = tf.Variable( # embeddings
 				tf.random_uniform([vocabulary_size, embedding_size], -1., 1.),
-				name="word_embeddings") # embeddings
+				name="word_embeddings")
 
 		# Construct the variables for the NCE loss
 		self.nce_weights = tf.Variable(
 				tf.truncated_normal([vocabulary_size, embedding_size],
-									stddev=1.0 / tf.sqrt(embedding_size)),
+									stddev=1. / tf.sqrt(embedding_size)),
 				name="nce_weights")
 		self.nce_biases = tf.Variable(tf.zeros([vocabulary_size]),
 									  name="nce_biases")
 
-	# Compute the average NCE loss for the batch.
-	# tf.nce_loss automatically draws a new sample of the negative labels each
-	# time we evaluate the loss.
 	def __call__(train_inputs, train_labels):
 		# x == train_inputs, t == train_labels
 		embed = tf.nn.embedding_lookup(self.W, train_inputs)
 
+		# Compute the average NCE loss for the batch.
+		# tf.nce_loss automatically draws a new sample of the negative labels each
+		# time we evaluate the loss.
 		loss = tf.reduce_mean(
 				tf.nn.nce_loss(self.nce_weights, self.nce_biases, embed,
 							   train_labels, self.sample_size, self.vocab_size),

@@ -5,13 +5,13 @@ import tensorflow as tf
 
 
 # def move(xp, *args): # xp == tf.Variable ?
-def move(xp, *args):
-	for arg in args:
-		if 'float' in str(arg.dtype):
-			yield tf.Variable(xp.asarray(arg, dtype='float32'))
-		else:
-			assert 'int' in str(arg.dtype)
-			yield tf.Variable(xp.asarray(arg, dtype='int32'))
+# def move(xp, *args):
+# 	for arg in args:
+# 		if 'float' in str(arg.dtype):
+# 			yield Variable(xp.asarray(arg, dtype='float32'))
+# 		else:
+# 			assert 'int' in str(arg.dtype)
+# 			yield Variable(xp.asarray(arg, dtype='int32'))
 
 
 def most_similar(embeddings, word_index):
@@ -24,7 +24,7 @@ def chunks(n, *args):
 	"""Yield successive n-sized chunks from l."""
 	# From stackoverflow question 312443
 	keypoints = []
-	for i in xrange(0, len(args[0]), n):
+	for i in range(0, len(args[0]), n):
 		keypoints.append((i, i + n))
 	random.shuffle(keypoints)
 	for a, b in keypoints:
