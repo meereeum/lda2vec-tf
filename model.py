@@ -28,8 +28,8 @@ class LDA2Vec():
 	}
 	RESTORE_KEY = "to_restore"
 
-	def __init__(self, n_documents, n_vocab, #train=True,counts=None
-				 d_hyperparams={}, save_graph_def=True, log_dir="./log"):
+	def __init__(self, n_documents, n_vocab, d_hyperparams={},#train=True,counts=None
+				 meta_graph=None, save_graph_def=True, log_dir="./log"):
 
 		self.__dict__.update(LDA2Vec.DEFAULTS, **d_hyperparams)
 		self.sesh = tf.Session()
@@ -83,13 +83,14 @@ class LDA2Vec():
 	def _buildGraph(self):
 
 		# pivot word
-		pivot_idxs = tf.placeholder([None, 1], # None enables variable batch size
-									dtype=tf.int32, name="pivot_idxs")
+		pivot_idxs = tf.placeholder(tf.int32,
+									shape=[None,],# 1], # None enables variable batch size
+									name="pivot_idxs")
 		pivot = tf.nn.embedding_lookup(self.sampler.W, # word embeddings
 										pivot_idxs)
 
 		# doc
-		doc_at_pivot = tf.placeholder([None, 1], dtype=tf.int32, name="doc_ids")
+		doc_at_pivot = tf.placeholder(tf.int32, shape=[None,], name="doc_ids")
 		doc = self.mixture(doc_at_pivot)#, update_only_docs=update_only_docs)
 
 		# context is sum of doc (mixture projected onto topics) & pivot embedding
@@ -97,26 +98,31 @@ class LDA2Vec():
 		context = tf.nn.dropout(doc, dropout) + tf.nn.dropout(pivot, dropout)
 
 		# targets
-		target_idxs = tf.placeholder([None, 1], dtype=tf.int64,
-									 name="target_idxs")
+		target_idxs = tf.placeholder(tf.int64, shape=[None,1], name="target_idxs")
 
 		# NCE loss
 		with tf.name_scope("nce_loss"):
 			loss_word2vec = self.sampler(context, target_idxs)
 
-			accum_loss_word2vec = tf.Variable(0, trainable=False)
-			accum_loss_word2vec += loss_word2vec
+			accum_loss_word2vec = tf.Variable(0, dtype=tf.float32, trainable=False)
+			# accum_loss_word2vec = tf.constant(0, dtype=tf.float32)
+			# accum_loss_word2vec += loss_word2vec
+			accum_loss_word2vec = tf.assign(accum_loss_word2vec,
+											accum_loss_word2vec + loss_word2vec)
 
-			reset_accum_loss = tf.assign(accum_loss_word2vec,
-										 tf.Variable(0, trainable=False))
+			reset_accum_loss = tf.assign(
+					accum_loss_word2vec,
+					tf.Variable(0, dtype=tf.float32, trainable=False))
 
 		# dirichlet loss (proportional to minibatch fraction)
-		prior = self.p
 		with tf.name_scope("lda_loss"):
 			n_corpus = tf.placeholder(tf.int32, [], name="n_corpus")
-			fraction = self.batch_size / self.n_corpus
-			fraction = tf.assign(fraction, self.sesh.run(fraction))
-			loss_lda = lmbda * fraction * self.prior() # dirichlet log-likelihodd
+			fraction = self.batch_size / n_corpus
+			# fraction = tf.assign(fraction, self.sesh.run(fraction))
+			# loss_lda = self.lmbda * fraction * self.prior() # dirichlet log-likelihodd
+			loss_lda = tf.cast(self.lmbda * fraction *
+							   tf.cast(self.prior(), tf.float64), # dirichlet log-likelihodd
+							   tf.float32)
 			# TODO penalize weights ?
 
 		# optimize
@@ -131,7 +137,7 @@ class LDA2Vec():
 		train_op = tf.contrib.layers.optimize_loss(
 			loss_total,
 			# accum_loss_word2vec + loss_lda,
-			global_step, self.learning_rate, "Adam", clip_gradient=5.)
+			global_step, self.learning_rate, "Adam", clip_gradients=5.)
 
 		# train_op_word2vec = tf.contrib.layers.optimize_loss(
 		# 	loss_word2vec, global_step, learning_rate, "Adam", clip_gradient=5.,
@@ -146,7 +152,7 @@ class LDA2Vec():
 
 	def prior(self, alpha=None):
 		# defaults to inialization with uniform prior (1/n_topics)
-		return dirichlet_likelihood(self.mixture.weights, alpha=alpha)
+		return dirichlet_likelihood(self.mixture.W, alpha=alpha)
 
 
 	def fit_partial(self, doc_ids, word_indices, window=5,
@@ -255,7 +261,7 @@ class LDA2Vec():
 				j += 1
 
 			if verbose:
-				print msg.format(**logs)
+				print(msg.format(**logs))
 
 		now = datetime.now().isoformat()[11:]
 		print("------- Training end: {} -------\n".format(now))

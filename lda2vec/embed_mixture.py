@@ -64,9 +64,12 @@ class EmbedMixture():
 		# 	factors=L.Parameter(factors))
 		# self.weights.W.data[...] /= np.sqrt(n_documents + n_topics)
 		# self.weights /= np.sqrt(n_documents + n_topics)
+		print("factors", factors.shape)
+		print("n_docs", n_documents)
+		print("n_topics", n_topics)
 		self.W = tf.Variable( # embedding weights
 			tf.random_normal([n_documents, n_topics], mean=0,
-							 stddev=1 / np.sqrt(n_document + n_topics)),
+							 stddev=1 / np.sqrt(n_documents + n_topics)),
 				name="doc_embeddings")
 		self.factors=tf.Variable(factors, name="topics") # topic vectors
 
@@ -91,6 +94,8 @@ class EmbedMixture():
 		# 	factors.unchain_backward()
 
 		# topic weights projected onto topic vectors
+		print("props ", proportions.get_shape())
+		print("factors ", factors.get_shape())
 		w_sum = tf.matmul(proportions, factors)
 		return w_sum
 
@@ -101,8 +106,11 @@ class EmbedMixture():
 			doc_weights : chainer.Variable
 				Two dimensional topic weights of each document.
 		"""
+		print("doc_ids", doc_ids.get_shape())
+		print("W", self.W.get_shape())
 		w = tf.nn.embedding_lookup(self.W, doc_ids, # embedded docs
 								   name="doc_proportions")
+		print("w", w.get_shape())
 
 		if softmax: # probabilize == sum to 1
 			# TODO unclear what purpose masking serves here
