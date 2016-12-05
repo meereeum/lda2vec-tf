@@ -27,4 +27,5 @@ def dirichlet_likelihood(weights, alpha=None):
 
 	loss = (alpha - 1) * log_proportions
 
-	return -tf.reduce_sum(loss) # log-sum-exp
+	# return -tf.reduce_sum(loss) # log-sum-exp
+	return tf.reduce_sum(loss) # log-sum-exp

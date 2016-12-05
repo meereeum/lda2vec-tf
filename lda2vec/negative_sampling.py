@@ -77,5 +77,8 @@ class NegativeSampling():
 							embed, # summed doc and context embedding
 							train_labels, self.sample_size, self.vocab_size),
 					name="nce_batch_loss")
+			# TODO negative sampling versus NCE
+			# TODO uniform vs. Zipf with exponent `distortion` param
+			#https://www.tensorflow.org/versions/r0.12/api_docs/python/nn.html#log_uniform_candidate_sampler
 
 		return loss

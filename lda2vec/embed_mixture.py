@@ -69,7 +69,7 @@ class EmbedMixture():
 		print("n_topics", n_topics)
 		self.W = tf.Variable( # embedding weights
 			tf.random_normal([n_documents, n_topics], mean=0,
-							 stddev=1 / np.sqrt(n_documents + n_topics)),
+							 stddev=1 / tf.sqrt(n_documents + n_topics)),
 				name="doc_embeddings")
 		self.factors=tf.Variable(factors, name="topics") # topic vectors
 
