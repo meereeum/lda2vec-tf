@@ -38,6 +38,9 @@ class NegativeSampling():
 		 Compositionality <http://arxiv.org/abs/1310.4546>`_
 	.. seealso:: :class:`~chainer.links.NegativeSampling`.
 	"""
+
+	IGNORE_LABEL = -1
+
 	def __init__(self, embedding_size, vocabulary_size, sample_size):
 		# via https://github.com/tensorflow/tensorflow/blob/r0.11/tensorflow/examples/tutorials/word2vec/word2vec_basic.py
 
@@ -60,12 +63,19 @@ class NegativeSampling():
 	def __call__(self, embed, train_labels):
 		# embed = tf.nn.embedding_lookup(self.W, train_inputs)
 
-		# Compute the average NCE loss for the batch.
-		# tf.nce_loss automatically draws a new sample of the negative labels each
-		# time we evaluate the loss.
-		loss = tf.reduce_mean(
-				tf.nn.nce_loss(self.nce_weights, self.nce_biases, embed, # summed doc and context embedding
-							   train_labels, self.sample_size, self.vocab_size),
-				name="nce_batch_loss")
+		with tf.name_scope("negative_sampling"):
+			# mask OOV
+			mask = tf.not_equal(train_labels, NegativeSampling.IGNORE_LABEL)
+			train_labels = tf.expand_dims(tf.boolean_mask(train_labels, mask), -1)
+			embed = tf.boolean_mask(embed, mask)
+
+			# Compute the average NCE loss for the batch.
+			# tf.nce_loss automatically draws a new sample of the negative labels each
+			# time we evaluate the loss.
+			loss = tf.reduce_mean(
+					tf.nn.nce_loss(self.nce_weights, self.nce_biases,
+							embed, # summed doc and context embedding
+							train_labels, self.sample_size, self.vocab_size),
+					name="nce_batch_loss")
 
 		return loss

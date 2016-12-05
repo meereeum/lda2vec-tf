@@ -7,6 +7,7 @@ import tensorflow as tf
 from lda2vec import dirichlet_likelihood
 from lda2vec import EmbedMixture
 from lda2vec import NegativeSampling
+from lda2vec import utils
 
 
 class LDA2Vec():
@@ -63,8 +64,8 @@ class LDA2Vec():
 
 		# unpack tensor ops to feed or fetch
 		(self.pivot_idxs, self.doc_at_pivot, self.dropout, self.target_idxs,
-		 self.n_corpus, losses, self.reset_accum_loss, self.global_step,
-		 train_ops) = handles
+		 self.n_corpus, losses, self.update_accum_loss, self.reset_accum_loss,
+		 self.global_step, train_ops) = handles
 
 		self.loss_word2vec, self.loss_lda = losses # TODO replace if decide to keep restore option
 		# self.train_op_word2vec, self.train_op_lda = train_ops
@@ -96,33 +97,49 @@ class LDA2Vec():
 		# context is sum of doc (mixture projected onto topics) & pivot embedding
 		dropout = tf.placeholder_with_default(1., shape=[], name="dropout")
 		context = tf.nn.dropout(doc, dropout) + tf.nn.dropout(pivot, dropout)
+		# context = utils.print_(context, "context")
 
 		# targets
-		target_idxs = tf.placeholder(tf.int64, shape=[None,1], name="target_idxs")
+		# target_idxs = tf.placeholder(tf.int64, shape=[None,1], name="target_idxs")
+		target_idxs = tf.placeholder(tf.int64, shape=[None,], name="target_idxs")
 
 		# NCE loss
-		with tf.name_scope("nce_loss"):
+		# with tf.name_scope("nce_loss"):
+		with tf.name_scope("word2vec_loss"):
 			loss_word2vec = self.sampler(context, target_idxs)
+			loss_word2vec = utils.print_(loss_word2vec, "loss_word2vec")
 
 			accum_loss_word2vec = tf.Variable(0, dtype=tf.float32, trainable=False)
 			# accum_loss_word2vec = tf.constant(0, dtype=tf.float32)
 			# accum_loss_word2vec += loss_word2vec
-			accum_loss_word2vec = tf.assign(accum_loss_word2vec,
-											accum_loss_word2vec + loss_word2vec)
+			# accum_loss_word2vec = tf.assign(accum_loss_word2vec,
+			# 								accum_loss_word2vec + loss_word2vec)
 
-			reset_accum_loss = tf.assign(
-					accum_loss_word2vec,
-					tf.Variable(0, dtype=tf.float32, trainable=False))
+			accum_loss_update = accum_loss_word2vec.assign_add(loss_word2vec)
+			# accum_loss_word2vec = accum_loss_word2vec.assign_add(loss_word2vec)
+			# accum_loss_word2vec = utils.print_(accum_loss_word2vec, "word2vec_accum")
+
+			accum_loss_reset = accum_loss_word2vec.assign_sub(accum_loss_word2vec)
+			# reset_accum_loss = tf.assign(
+			# 		accum_loss_word2vec,
+			# 		tf.Variable(0, dtype=tf.float32, trainable=False))
+			accum_loss_word2vec = utils.print_(accum_loss_word2vec,
+											   "accum_loss_word2vec")
+
 
 		# dirichlet loss (proportional to minibatch fraction)
 		with tf.name_scope("lda_loss"):
 			n_corpus = tf.placeholder(tf.int32, [], name="n_corpus")
 			fraction = self.batch_size / n_corpus
+			# fraction = tf.assign(tf.Variable(0, trainable=False, dtype=tf.float64),
+			# 					 self.batch_size / n_corpus)
+			# fraction = tf.assign(fraction, fraction)
 			# fraction = tf.assign(fraction, self.sesh.run(fraction))
 			# loss_lda = self.lmbda * fraction * self.prior() # dirichlet log-likelihodd
 			loss_lda = tf.cast(self.lmbda * fraction *
-							   tf.cast(self.prior(), tf.float64), # dirichlet log-likelihodd
-							   tf.float32)
+							   tf.cast(self.prior(), # dirichlet log-likelihood
+									   tf.float64), tf.float32)
+			loss_lda = utils.print_(loss_lda, "loss_lda")
 			# TODO penalize weights ?
 
 		# optimize
@@ -146,8 +163,8 @@ class LDA2Vec():
 		# 	loss_lda, global_step, learning_rate, "Adam", clip_gradient=5.,
 		# 	name="train_op_lda")
 
-		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, n_corpus,
-				losses, reset_accum_loss, global_step, train_op)#s)
+		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, n_corpus, losses,
+				accum_loss_update, accum_loss_reset, global_step, train_op)#s)
 
 
 	def prior(self, alpha=None):
@@ -186,14 +203,22 @@ class LDA2Vec():
 
 			# If weight is 1.0 then targetidx
 			# If weight is 0.0 then -1
+			# target_idx = np.atleast_2d(target_idx * weight + -1 * (1 - weight)).T
 			target_idx = target_idx * weight + -1 * (1 - weight)
 
 			feed_dict = {self.pivot_idxs: pivot_idx,
 						 self.doc_at_pivot: doc_at_pivot,
 						 self.dropout: self.dropout_ratio,
 						 self.target_idxs: target_idx}
-			fetches = [self.loss_lda]
-			accum_loss = self.sesh.run(fetches, feed_dict=feed_dict)
+
+			# check = tf.add_check_numerics_ops()
+			# fetches = [self.update_accum_loss, check]
+			# accum_loss, _ = self.sesh.run(fetches, feed_dict=feed_dict)
+
+			accum_loss = self.sesh.run(self.update_accum_loss,
+									   feed_dict=feed_dict)
+			# fetches = [self.loss_word2vec]
+			# print("accum", accum_loss)
 
 			# if update_only_docs:
 			# 	# Wipe out any gradient accumulation on word vectors
@@ -202,7 +227,7 @@ class LDA2Vec():
 		return accum_loss
 
 
-	def train(doc_ids, flattened, max_epochs=100, verbose=True,
+	def train(self, doc_ids, flattened, max_epochs=100, verbose=True,
 			  save=False, outdir="./out"):
 
 		if save:
@@ -212,8 +237,8 @@ class LDA2Vec():
 		epoch = 0
 		# progress = shelve.open('progress.shelve') TODO ?
 
-		feed_dict = {self.n_corpus: len(flattened)}
-		self.sesh.run(self.loss_lda, feed_dict=feed_dict) # assign n_corpus
+		# feed_dict = {self.n_corpus: len(flattened)}
+		# _ = self.sesh.run(self.fra, feed_dict=feed_dict) # assign n_corpus
 
 		now = datetime.now().isoformat()[11:]
 		print("------- Training begin: {} -------\n".format(now))
@@ -242,7 +267,10 @@ class LDA2Vec():
 				t0 = datetime.now().timestamp()
 
 				loss_word2vec = self.fit_partial(d, f)
-				loss_lda, _ = self.sesh.run([self.loss_lda, self.train_op])
+
+				feed_dict = {self.n_corpus: len(flattened)}
+				fetches = [self.loss_lda, self.train_op]
+				loss_lda, _ = self.sesh.run(fetches, feed_dict=feed_dict)
 
 				self.sesh.run(self.reset_accum_loss)
 
@@ -256,12 +284,16 @@ class LDA2Vec():
 				rate = self.batch_size / dt
 				# logs = dict(loss=float(l), epoch=epoch, j=j,
 				# 			prior=float(prior.data), rate=rate)
-				logs = dict(l_word2vec=float(loss_word2vec), epoch=epoch, j=j,
-							l_lda=float(loss_lda), rate=rate)
+				# logs = dict(l_word2vec=float(loss_word2vec), epoch=epoch, j=j,
+				# 			l_lda=float(loss_lda), rate=rate)
+				print(loss_word2vec)
+				logs = dict(l_word2vec=loss_word2vec, epoch=epoch, j=j,
+							l_lda=loss_lda, rate=rate)
+				print(logs)
 				j += 1
 
-			if verbose:
-				print(msg.format(**logs))
+				if verbose:
+					print(msg.format(**logs))
 
 		now = datetime.now().isoformat()[11:]
 		print("------- Training end: {} -------\n".format(now))

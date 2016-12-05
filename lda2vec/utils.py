@@ -13,6 +13,28 @@ import tensorflow as tf
 # 			assert 'int' in str(arg.dtype)
 # 			yield Variable(xp.asarray(arg, dtype='int32'))
 
+# def print_(var, name=None, first_n=5, summarize=5):
+def print_(var, name: str, first_n=5, summarize=5):
+	"""Util for debugging, by printing values of tf.Variable `var` during training"""
+
+	# name = (next(k for k, v in globals().items() if v == var) # get name automagically
+	# 		if name is None else name) # TODO make work for list ?
+
+	# name = (next(k for k, v in globals().items() if id(v) == id(var))
+	# 		if name is None else name)
+	# print(name)
+	# return ([k for k, v in globals().items() if id(v) == id(var)]
+	# 		if name is None else name)
+
+	try:
+		return tf.Print(var, [var], '{}: '.format(name), first_n=first_n,
+						summarize=summarize)
+
+	except(TypeError): # variables are already in a list
+		return tf.Print(var, var, '{}: '.format(name), first_n=first_n,
+						summarize=summarize)
+
+
 
 def most_similar(embeddings, word_index):
 	input_vector = tf.nn.embedding_lookup(embeddings, word_index)
