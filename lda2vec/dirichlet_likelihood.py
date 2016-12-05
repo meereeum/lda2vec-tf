@@ -22,7 +22,8 @@ def dirichlet_likelihood(weights, alpha=None):
 	if alpha is None:
 		alpha = 1 / n_topics
 
-	log_proportions = tf.log(tf.nn.softmax(weights))
+	# log_proportions = tf.log(tf.nn.softmax(weights))
+	log_proportions = tf.nn.log_softmax(weights)
 
 	loss = (alpha - 1) * log_proportions
 

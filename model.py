@@ -48,7 +48,7 @@ class LDA2Vec():
 			# build graph
 			handles = self._buildGraph()
 			for handle in handles: # TODO if use, need to account for loss tuple
-				tf.add_to_collection(LDA2Vec.RESTORE_KEY, handle) # TODO need to save EmbedMix & Sampler weights
+				tf.add_to_collection(LDA2Vec.RESTORE_KEY, handle) # TODO need to access EmbedMix & Sampler weights
 			self.sesh.run(tf.initialize_all_variables())
 
 		else: # restore saved model
@@ -64,12 +64,14 @@ class LDA2Vec():
 
 		# unpack tensor ops to feed or fetch
 		(self.pivot_idxs, self.doc_at_pivot, self.dropout, self.target_idxs,
-		 self.n_corpus, losses, self.update_accum_loss, self.reset_accum_loss,
-		 self.global_step, train_ops) = handles
+		 self.n_corpus, #losses,
+		 self.loss_word2vec, self.loss_lda,
+		 self.update_accum_loss, self.reset_accum_loss,
+		 self.global_step, self.train_op) = handles
 
-		self.loss_word2vec, self.loss_lda = losses # TODO replace if decide to keep restore option
-		# self.train_op_word2vec, self.train_op_lda = train_ops
-		self.train_op = train_ops # TODO replace if decidee to keep combined op
+		# self.loss_word2vec, self.loss_lda = losses # TODO replace if decide to keep restore option
+		# # self.train_op_word2vec, self.train_op_lda = train_ops
+		# self.train_op = train_ops # TODO replace if decidee to keep combined op
 
 		if save_graph_def: # tensorboard
 			self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
@@ -85,7 +87,7 @@ class LDA2Vec():
 
 		# pivot word
 		pivot_idxs = tf.placeholder(tf.int32,
-									shape=[None,],# 1], # None enables variable batch size
+									shape=[None,], # None enables variable batch size
 									name="pivot_idxs")
 		pivot = tf.nn.embedding_lookup(self.sampler.W, # word embeddings
 										pivot_idxs)
@@ -97,10 +99,8 @@ class LDA2Vec():
 		# context is sum of doc (mixture projected onto topics) & pivot embedding
 		dropout = tf.placeholder_with_default(1., shape=[], name="dropout")
 		context = tf.nn.dropout(doc, dropout) + tf.nn.dropout(pivot, dropout)
-		# context = utils.print_(context, "context")
 
 		# targets
-		# target_idxs = tf.placeholder(tf.int64, shape=[None,1], name="target_idxs")
 		target_idxs = tf.placeholder(tf.int64, shape=[None,], name="target_idxs")
 
 		# NCE loss
@@ -130,15 +130,16 @@ class LDA2Vec():
 		# dirichlet loss (proportional to minibatch fraction)
 		with tf.name_scope("lda_loss"):
 			n_corpus = tf.placeholder(tf.int32, [], name="n_corpus")
-			fraction = self.batch_size / n_corpus
+			fraction = tf.cast(self.batch_size / n_corpus, tf.float32)
 			# fraction = tf.assign(tf.Variable(0, trainable=False, dtype=tf.float64),
 			# 					 self.batch_size / n_corpus)
 			# fraction = tf.assign(fraction, fraction)
 			# fraction = tf.assign(fraction, self.sesh.run(fraction))
 			# loss_lda = self.lmbda * fraction * self.prior() # dirichlet log-likelihodd
-			loss_lda = tf.cast(self.lmbda * fraction *
-							   tf.cast(self.prior(), # dirichlet log-likelihood
-									   tf.float64), tf.float32)
+			# loss_lda = tf.cast(self.lmbda * fraction *
+			# 				   tf.cast(self.prior(), # dirichlet log-likelihood
+			# 						   tf.float64), tf.float32)
+			loss_lda = fraction * self.prior() # dirichlet log-likelihood
 			loss_lda = utils.print_(loss_lda, "loss_lda")
 			# TODO penalize weights ?
 
@@ -149,22 +150,18 @@ class LDA2Vec():
 		# 	loss, global_step, self.learning_rate, "Adam", clip_gradient=5.)
 		# 				  for loss in losses)
 
-		losses = (accum_loss_word2vec, loss_lda)
-		loss_total = tf.add(*losses)
+		# losses = (accum_loss_word2vec, loss_lda)
+		# loss_total = tf.add(*losses)
 		train_op = tf.contrib.layers.optimize_loss(
-			loss_total,
-			# accum_loss_word2vec + loss_lda,
+			# loss_total,
+			accum_loss_word2vec + self.lmbda * loss_lda,
 			global_step, self.learning_rate, "Adam", clip_gradients=5.)
 
-		# train_op_word2vec = tf.contrib.layers.optimize_loss(
-		# 	loss_word2vec, global_step, learning_rate, "Adam", clip_gradient=5.,
-		# 	name="train_op_word2vec")
-		# train_op_lda = tf.contrib.layers.optimize_loss(
-		# 	loss_lda, global_step, learning_rate, "Adam", clip_gradient=5.,
-		# 	name="train_op_lda")
+		# check = tf.add_check_numerics_ops()
 
-		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, n_corpus, losses,
-				accum_loss_update, accum_loss_reset, global_step, train_op)#s)
+		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, n_corpus, #losses,
+				accum_loss_word2vec, loss_lda,
+				accum_loss_update, accum_loss_reset, global_step, train_op)
 
 
 	def prior(self, alpha=None):
@@ -203,7 +200,6 @@ class LDA2Vec():
 
 			# If weight is 1.0 then targetidx
 			# If weight is 0.0 then -1
-			# target_idx = np.atleast_2d(target_idx * weight + -1 * (1 - weight)).T
 			target_idx = target_idx * weight + -1 * (1 - weight)
 
 			feed_dict = {self.pivot_idxs: pivot_idx,
@@ -211,14 +207,8 @@ class LDA2Vec():
 						 self.dropout: self.dropout_ratio,
 						 self.target_idxs: target_idx}
 
-			# check = tf.add_check_numerics_ops()
-			# fetches = [self.update_accum_loss, check]
-			# accum_loss, _ = self.sesh.run(fetches, feed_dict=feed_dict)
-
 			accum_loss = self.sesh.run(self.update_accum_loss,
 									   feed_dict=feed_dict)
-			# fetches = [self.loss_word2vec]
-			# print("accum", accum_loss)
 
 			# if update_only_docs:
 			# 	# Wipe out any gradient accumulation on word vectors
@@ -282,14 +272,8 @@ class LDA2Vec():
 				t1 = datetime.now().timestamp()
 				dt = t1 - t0
 				rate = self.batch_size / dt
-				# logs = dict(loss=float(l), epoch=epoch, j=j,
-				# 			prior=float(prior.data), rate=rate)
-				# logs = dict(l_word2vec=float(loss_word2vec), epoch=epoch, j=j,
-				# 			l_lda=float(loss_lda), rate=rate)
-				print(loss_word2vec)
 				logs = dict(l_word2vec=loss_word2vec, epoch=epoch, j=j,
 							l_lda=loss_lda, rate=rate)
-				print(logs)
 				j += 1
 
 				if verbose:
