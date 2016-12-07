@@ -17,6 +17,7 @@ class LDA2Vec():
 		"n_embedding": 256, # embedding size
 
 		"batch_size": 128,
+		"window": 5,
 		"learning_rate": 0.1,
 		"dropout_ratio": 0.5, # keep_prob
 		"word_dropout": 0., # dropout (?)
@@ -35,20 +36,21 @@ class LDA2Vec():
 		self.__dict__.update(LDA2Vec.DEFAULTS, **d_hyperparams)
 		self.sesh = tf.Session()
 
-		self.mixture = EmbedMixture(
-				n_documents, self.n_document_topics, self.n_embedding,
-				keep_prob=self.dropout_ratio, temperature=self.temperature)
-
-		self.sampler = NegativeSampling(
-				self.n_embedding, n_vocab, self.n_samples)
-
 		if not meta_graph: # new model
 			self.datetime = datetime.now().strftime(r"%y%m%d_%H%M")
 
 			# build graph
-			handles = self._buildGraph()
-			for handle in handles: # TODO if use, need to account for loss tuple
-				tf.add_to_collection(LDA2Vec.RESTORE_KEY, handle) # TODO need to access EmbedMix & Sampler weights
+			self.mixture = EmbedMixture(
+					n_documents, self.n_document_topics, self.n_embedding,
+					keep_prob=self.dropout_ratio, temperature=self.temperature)
+			self.sampler = NegativeSampling(
+					self.n_embedding, n_vocab, self.n_samples)
+
+			handles = self._buildGraph() + (
+					self.mixture.W, self.mixture.factors, self.sampler.W)
+
+			for handle in handles:
+				tf.add_to_collection(LDA2Vec.RESTORE_KEY, handle)
 			self.sesh.run(tf.initialize_all_variables())
 
 		else: # restore saved model
@@ -64,14 +66,9 @@ class LDA2Vec():
 
 		# unpack tensor ops to feed or fetch
 		(self.pivot_idxs, self.doc_at_pivot, self.dropout, self.target_idxs,
-		 self.n_corpus, #losses,
-		 self.loss_word2vec, self.loss_lda,
-		 self.update_accum_loss, self.reset_accum_loss,
-		 self.global_step, self.train_op) = handles
-
-		# self.loss_word2vec, self.loss_lda = losses # TODO replace if decide to keep restore option
-		# # self.train_op_word2vec, self.train_op_lda = train_ops
-		# self.train_op = train_ops # TODO replace if decidee to keep combined op
+		 self.n_corpus, self.loss_word2vec, self.loss_lda, self.update_accum_loss,
+		 self.reset_accum_loss, self.global_step, self.train_op,
+		 self.doc_embeds, self.topics, self.word_embeds) = handles
 
 		if save_graph_def: # tensorboard
 			self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
@@ -110,10 +107,6 @@ class LDA2Vec():
 			loss_word2vec = utils.print_(loss_word2vec, "loss_word2vec")
 
 			accum_loss_word2vec = tf.Variable(0, dtype=tf.float32, trainable=False)
-			# accum_loss_word2vec = tf.constant(0, dtype=tf.float32)
-			# accum_loss_word2vec += loss_word2vec
-			# accum_loss_word2vec = tf.assign(accum_loss_word2vec,
-			# 								accum_loss_word2vec + loss_word2vec)
 
 			accum_loss_update = accum_loss_word2vec.assign_add(loss_word2vec)
 			# accum_loss_word2vec = accum_loss_word2vec.assign_add(loss_word2vec)
@@ -123,37 +116,22 @@ class LDA2Vec():
 			# reset_accum_loss = tf.assign(
 			# 		accum_loss_word2vec,
 			# 		tf.Variable(0, dtype=tf.float32, trainable=False))
-			accum_loss_word2vec = utils.print_(accum_loss_word2vec,
-											   "accum_loss_word2vec")
+			# accum_loss_word2vec = utils.print_(accum_loss_word2vec,
+			# 								   "accum_loss_word2vec")
 
 
 		# dirichlet loss (proportional to minibatch fraction)
 		with tf.name_scope("lda_loss"):
 			n_corpus = tf.placeholder(tf.int32, [], name="n_corpus")
 			fraction = tf.cast(self.batch_size / n_corpus, tf.float32)
-			# fraction = tf.assign(tf.Variable(0, trainable=False, dtype=tf.float64),
-			# 					 self.batch_size / n_corpus)
-			# fraction = tf.assign(fraction, fraction)
-			# fraction = tf.assign(fraction, self.sesh.run(fraction))
-			# loss_lda = self.lmbda * fraction * self.prior() # dirichlet log-likelihodd
-			# loss_lda = tf.cast(self.lmbda * fraction *
-			# 				   tf.cast(self.prior(), # dirichlet log-likelihood
-			# 						   tf.float64), tf.float32)
 			loss_lda = fraction * self.prior() # dirichlet log-likelihood
-			loss_lda = utils.print_(loss_lda, "loss_lda")
+			# loss_lda = utils.print_(loss_lda, "loss_lda")
 			# TODO penalize weights ?
 
 		# optimize
 		global_step = tf.Variable(0, trainable=False)
 
-		# train_ops = tuple(tf.contrib.layers.optimize_loss(
-		# 	loss, global_step, self.learning_rate, "Adam", clip_gradient=5.)
-		# 				  for loss in losses)
-
-		# losses = (accum_loss_word2vec, loss_lda)
-		# loss_total = tf.add(*losses)
 		train_op = tf.contrib.layers.optimize_loss(
-			# loss_total,
 			accum_loss_word2vec + self.lmbda * loss_lda,
 			global_step, self.learning_rate, "Adam", clip_gradients=5.)
 
@@ -169,9 +147,10 @@ class LDA2Vec():
 		return dirichlet_likelihood(self.mixture.W, alpha=alpha)
 
 
-	def fit_partial(self, doc_ids, word_indices, window=5,
+	def fit_partial(self, doc_ids, word_indices, window=None,
 					update_only_docs=False):
 
+		window = (self.window if window is None else window)
 		pivot_idx = word_indices[window: -window]
 
 		# if update_only_docs: TODO ?

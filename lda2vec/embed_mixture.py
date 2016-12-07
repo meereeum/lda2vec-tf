@@ -50,7 +50,7 @@ class EmbedMixture():
 	"""
 
 	def __init__(self, n_documents, n_topics, n_dim, keep_prob=0.8,
-				 temperature=1.0):
+				 temperature=1.0, W=None, factors=None):
 		self.n_documents = n_documents
 		self.n_topics = n_topics
 		self.n_dim = n_dim
@@ -67,11 +67,12 @@ class EmbedMixture():
 		print("factors", factors.shape)
 		print("n_docs", n_documents)
 		print("n_topics", n_topics)
-		self.W = tf.Variable( # embedding weights
+		self.W = (tf.Variable( # unnormalized embedding weights
 			tf.random_normal([n_documents, n_topics], mean=0,
-							 stddev=1 / tf.sqrt(n_documents + n_topics)),
-				name="doc_embeddings")
-		self.factors=tf.Variable(factors, name="topics") # topic vectors
+							 stddev=1 / np.sqrt(n_documents + n_topics)),
+				name="doc_embeddings") if W is None else W)
+		self.factors = (tf.Variable(factors, name="topics") # topic vectors
+						if factors is None else factors)
 
 	def __call__(self, doc_ids, update_only_docs=False):
 		""" Given an array of document integer indices, returns a vector

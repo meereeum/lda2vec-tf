@@ -47,7 +47,7 @@ class NegativeSampling():
 		self.vocab_size = vocabulary_size
 		self.sample_size = sample_size
 
-		self.W = tf.Variable( # embeddings
+		self.W = tf.Variable( # word embeddings
 				tf.random_uniform([vocabulary_size, embedding_size], -1., 1.),
 				name="word_embeddings")
 
@@ -61,11 +61,11 @@ class NegativeSampling():
 
 	# def __call__(self, train_inputs, train_labels):
 	def __call__(self, embed, train_labels):
-		# embed = tf.nn.embedding_lookup(self.W, train_inputs)
 
 		with tf.name_scope("negative_sampling"):
 			# mask OOV
-			mask = tf.not_equal(train_labels, NegativeSampling.IGNORE_LABEL)
+			mask = tf.greater(train_labels, 0) # ignores skip or oov
+			# mask = tf.not_equal(train_labels, NegativeSampling.IGNORE_LABEL)
 			train_labels = tf.expand_dims(tf.boolean_mask(train_labels, mask), -1)
 			embed = tf.boolean_mask(embed, mask)
 
