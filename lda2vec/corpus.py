@@ -1,12 +1,13 @@
 from collections import defaultdict
+# import difflib
+
 import numpy as np
-import difflib
 import pandas as pd
 
-try:
-	from pyxdameraulevenshtein import damerau_levenshtein_distance_withNPArray
-except ImportError:
-	pass
+# try:
+# 	from pyxdameraulevenshtein import damerau_levenshtein_distance_withNPArray
+# except ImportError:
+# 	pass
 
 
 class Corpus():
@@ -481,111 +482,111 @@ class Corpus():
 			words.append(string)
 		return words
 
-	def compact_word_vectors(self, vocab, filename=None, array=None,
-							 top=20000):
-		""" Retrieve pretrained word spectors for our vocabulary.
-		The returned word array has row indices corresponding to the
-		compact index of a word, and columns correponding to the word
-		vector.
+	# def compact_word_vectors(self, vocab, filename=None, array=None,
+	# 						 top=20000):
+	# 	""" Retrieve pretrained word spectors for our vocabulary.
+	# 	The returned word array has row indices corresponding to the
+	# 	compact index of a word, and columns correponding to the word
+	# 	vector.
 
-		Arguments
-		---------
-		vocab : dict
-			Dictionary where keys are the loose index, and values are
-			the word string.
+	# 	Arguments
+	# 	---------
+	# 	vocab : dict
+	# 		Dictionary where keys are the loose index, and values are
+	# 		the word string.
 
-		use_spacy : bool
-			Use SpaCy to load in word vectors. Otherwise Gensim.
+	# 	use_spacy : bool
+	# 		Use SpaCy to load in word vectors. Otherwise Gensim.
 
-		filename : str
-			Filename for SpaCy-compatible word vectors or if use_spacy=False
-			then uses word2vec vectors via gensim.
+	# 	filename : str
+	# 		Filename for SpaCy-compatible word vectors or if use_spacy=False
+	# 		then uses word2vec vectors via gensim.
 
-		Returns
-		-------
-		data : numpy float array
-			Array such that data[compact_index, :] = word_vector
+	# 	Returns
+	# 	-------
+	# 	data : numpy float array
+	# 		Array such that data[compact_index, :] = word_vector
 
-		Examples
-		--------
-		>>> import numpy.linalg as nl
-		>>> vocab = {19: 'shuttle', 5: 'astronomy', 7: 'cold', 3: 'hot'}
-		>>> word_indices = np.zeros(50).astype('int32')
-		>>> word_indices[:25] = 19  # 'Shuttle' shows 25 times
-		>>> word_indices[25:35] = 5  # 'astronomy' is in 10 times
-		>>> word_indices[40:46] = 7  # 'cold' is in 6 times
-		>>> word_indices[46:] = 3  # 'hot' is in 3 times
-		>>> corpus = Corpus()
-		>>> corpus.update_word_count(word_indices)
-		>>> corpus.finalize()
-		>>> v, s, f = corpus.compact_word_vectors(vocab)
-		>>> sim = lambda x, y: np.dot(x, y) / nl.norm(x) / nl.norm(y)
-		>>> vocab[corpus.compact_to_loose[2]]
-		'shuttle'
-		>>> vocab[corpus.compact_to_loose[3]]
-		'astronomy'
-		>>> vocab[corpus.compact_to_loose[4]]
-		'cold'
-		>>> sim_shuttle_astro = sim(v[2, :], v[3, :])
-		>>> sim_shuttle_cold = sim(v[2, :], v[4, :])
-		>>> sim_shuttle_astro > sim_shuttle_cold
-		True
-		"""
-		n_words = len(self.compact_to_loose)
-		from gensim.models.word2vec import Word2Vec
-		model = Word2Vec.load_word2vec_format(filename, binary=True)
-		n_dim = model.syn0.shape[1]
-		data = np.random.normal(size=(n_words, n_dim)).astype('float32')
-		data -= data.mean()
-		data += model.syn0.mean()
-		data /= data.std()
-		data *= model.syn0.std()
-		if array is not None:
-			data = array
-			n_words = data.shape[0]
-		keys_raw = model.vocab.keys()
-		keys = [s.encode('ascii', 'ignore') for s in keys_raw]
-		lens = [len(s) for s in model.vocab.keys()]
-		choices = np.array(keys, dtype='S')
-		lengths = np.array(lens, dtype='int32')
-		s, f = 0, 0
-		rep0 = lambda w: w
-		rep1 = lambda w: w.replace(' ', '_')
-		rep2 = lambda w: w.title().replace(' ', '_')
-		reps = [rep0, rep1, rep2]
-		for compact in np.arange(top):
-			loose = self.compact_to_loose.get(compact, None)
-			if loose is None:
-				continue
-			word = vocab.get(loose, None)
-			if word is None:
-				continue
-			word = word.strip()
-			vector = None
-			for rep in reps:
-				clean = rep(word)
-				if clean in model.vocab:
-					vector = model[clean]
-					break
-			if vector is None:
-				try:
-					word = unicode(word)
-					idx = lengths >= len(word) - 3
-					idx &= lengths <= len(word) + 3
-					sel = choices[idx]
-					d = damerau_levenshtein_distance_withNPArray(word, sel)
-					choice = np.array(keys_raw)[idx][np.argmin(d)]
-					# choice = difflib.get_close_matches(word, choices)[0]
-					vector = model[choice]
-					print(compact, word, ' --> ', choice)
-				except IndexError:
-					pass
-			if vector is None:
-				f += 1
-				continue
-			s += 1
-			data[compact, :] = vector[:]
-		return data, s, f
+	# 	Examples
+	# 	--------
+	# 	>>> import numpy.linalg as nl
+	# 	>>> vocab = {19: 'shuttle', 5: 'astronomy', 7: 'cold', 3: 'hot'}
+	# 	>>> word_indices = np.zeros(50).astype('int32')
+	# 	>>> word_indices[:25] = 19  # 'Shuttle' shows 25 times
+	# 	>>> word_indices[25:35] = 5  # 'astronomy' is in 10 times
+	# 	>>> word_indices[40:46] = 7  # 'cold' is in 6 times
+	# 	>>> word_indices[46:] = 3  # 'hot' is in 3 times
+	# 	>>> corpus = Corpus()
+	# 	>>> corpus.update_word_count(word_indices)
+	# 	>>> corpus.finalize()
+	# 	>>> v, s, f = corpus.compact_word_vectors(vocab)
+	# 	>>> sim = lambda x, y: np.dot(x, y) / nl.norm(x) / nl.norm(y)
+	# 	>>> vocab[corpus.compact_to_loose[2]]
+	# 	'shuttle'
+	# 	>>> vocab[corpus.compact_to_loose[3]]
+	# 	'astronomy'
+	# 	>>> vocab[corpus.compact_to_loose[4]]
+	# 	'cold'
+	# 	>>> sim_shuttle_astro = sim(v[2, :], v[3, :])
+	# 	>>> sim_shuttle_cold = sim(v[2, :], v[4, :])
+	# 	>>> sim_shuttle_astro > sim_shuttle_cold
+	# 	True
+	# 	"""
+	# 	n_words = len(self.compact_to_loose)
+	# 	from gensim.models.word2vec import Word2Vec
+	# 	model = Word2Vec.load_word2vec_format(filename, binary=True)
+	# 	n_dim = model.syn0.shape[1]
+	# 	data = np.random.normal(size=(n_words, n_dim)).astype('float32')
+	# 	data -= data.mean()
+	# 	data += model.syn0.mean()
+	# 	data /= data.std()
+	# 	data *= model.syn0.std()
+	# 	if array is not None:
+	# 		data = array
+	# 		n_words = data.shape[0]
+	# 	keys_raw = model.vocab.keys()
+	# 	keys = [s.encode('ascii', 'ignore') for s in keys_raw]
+	# 	lens = [len(s) for s in model.vocab.keys()]
+	# 	choices = np.array(keys, dtype='S')
+	# 	lengths = np.array(lens, dtype='int32')
+	# 	s, f = 0, 0
+	# 	rep0 = lambda w: w
+	# 	rep1 = lambda w: w.replace(' ', '_')
+	# 	rep2 = lambda w: w.title().replace(' ', '_')
+	# 	reps = [rep0, rep1, rep2]
+	# 	for compact in np.arange(top):
+	# 		loose = self.compact_to_loose.get(compact, None)
+	# 		if loose is None:
+	# 			continue
+	# 		word = vocab.get(loose, None)
+	# 		if word is None:
+	# 			continue
+	# 		word = word.strip()
+	# 		vector = None
+	# 		for rep in reps:
+	# 			clean = rep(word)
+	# 			if clean in model.vocab:
+	# 				vector = model[clean]
+	# 				break
+	# 		if vector is None:
+	# 			try:
+	# 				word = unicode(word)
+	# 				idx = lengths >= len(word) - 3
+	# 				idx &= lengths <= len(word) + 3
+	# 				sel = choices[idx]
+	# 				d = damerau_levenshtein_distance_withNPArray(word, sel)
+	# 				choice = np.array(keys_raw)[idx][np.argmin(d)]
+	# 				# choice = difflib.get_close_matches(word, choices)[0]
+	# 				vector = model[choice]
+	# 				print(compact, word, ' --> ', choice)
+	# 			except IndexError:
+	# 				pass
+	# 		if vector is None:
+	# 			f += 1
+	# 			continue
+	# 		s += 1
+	# 		data[compact, :] = vector[:]
+	# 	return data, s, f
 
 	def compact_to_bow(self, word_compact, max_compact_index=None):
 		""" Given a 2D array of compact indices, return the bag of words
