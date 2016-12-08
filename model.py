@@ -35,6 +35,7 @@ class LDA2Vec():
 				 meta_graph=None, save_graph_def=True, log_dir="./log"):
 
 		self.__dict__.update(LDA2Vec.DEFAULTS, **d_hyperparams)
+		tf.reset_default_graph()
 		self.sesh = tf.Session()
 
 		if not meta_graph: # new model
@@ -291,7 +292,7 @@ class LDA2Vec():
 		"""
 		idxs_in = tf.placeholder(tf.int32,
 							  shape=[None,], # None enables variable batch size
-							  name="idxs") # doc or word
+							  name="idxs") # doc or topic or word
 
 		n = tf.placeholder_with_default(10, shape=None, name="n")
 
@@ -310,12 +311,14 @@ class LDA2Vec():
 						("word", "topic"),
 						("topic", "word"),
 						("doc", "doc")):
-			embeddings_in = tf.nn.embedding_lookup(normalized_embedding[in_], idxs)
+			embeddings_in = tf.nn.embedding_lookup(normalized_embedding[in_],
+												   idxs_in)
 			similarity = tf.matmul(embeddings_in, normalized_embedding[vs],
 								   transpose_b=True)
 			values, top_idxs = tf.nn.top_k(similarity, sorted=True, k=n)
-			top_sims = tf.gather_nd(similarity, top_idxs)
-			similarities[(in_, vs)] = [top_idxs, top_sims]
+			# top_sims = tf.gather_nd(similarity, top_idxs)
+			# similarities[(in_, vs)] = [top_idxs, top_sims]
+			similarities[(in_, vs)] = (top_idxs, similarity)
 
 		return (idxs_in, n, similarities)
 
@@ -332,8 +335,11 @@ class LDA2Vec():
 			try:
 				feed_dict = {self.idxs_in: ids, self.n: n}
 				fetches = self.similarities[(in_, vs)]
-				top_idxs, top_sims = self.sesh.run(fetches, feed_dict=feed_dict)
-				return np.concatenate(top_idxs, top_sims)
+				top_idxs, sims = self.sesh.run(fetches, feed_dict=feed_dict)
+				top_sims = sims[
+					tuple([i]*top_idxs.shape[1] for i in range(top_idxs.shape[0])),
+					 top_idxs]
+				return (top_idxs, top_sims)
 
 			except(AttributeError): # not yet initialized
 				(self.idxs_in, self.n,
