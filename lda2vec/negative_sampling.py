@@ -1,5 +1,7 @@
 import tensorflow as tf
 
+import utils
+
 
 class NegativeSampling():
 	"""Negative sampling loss function.
@@ -41,15 +43,15 @@ class NegativeSampling():
 
 	IGNORE_LABEL_MAX = 1 # ignore any labels <=1 (OOV or skip)
 
-	def __init__(self, embedding_size, vocabulary_size, sample_size):
+	def __init__(self, embedding_size, vocabulary_size, sample_size, W_in=None):
 		# via https://github.com/tensorflow/tensorflow/blob/r0.11/tensorflow/examples/tutorials/word2vec/word2vec_basic.py
 
 		self.vocab_size = vocabulary_size
 		self.sample_size = sample_size
 
-		self.W = tf.Variable( # word embeddings
+		self.W = (tf.Variable( # word embeddings
 				tf.random_uniform([vocabulary_size, embedding_size], -1., 1.),
-				name="word_embeddings")
+				name="word_embeddings") if W_in is None else W_in)
 
 		self.W = utils.print_(self.W, "embedding")
 
