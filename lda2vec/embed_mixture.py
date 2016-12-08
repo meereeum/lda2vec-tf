@@ -1,6 +1,8 @@
 import numpy as np
 import tensorflow as tf
 
+import utils
+
 
 def _orthogonal_matrix(shape):
 	# Stolen from blocks:
@@ -50,7 +52,7 @@ class EmbedMixture():
 	"""
 
 	def __init__(self, n_documents, n_topics, n_dim, keep_prob=0.8,
-				 temperature=1.0, W=None, factors=None):
+				 temperature=1.0, W_in=None, factors_in=None):
 		self.n_documents = n_documents
 		self.n_topics = n_topics
 		self.n_dim = n_dim
@@ -70,9 +72,9 @@ class EmbedMixture():
 		self.W = (tf.Variable( # unnormalized embedding weights
 			tf.random_normal([n_documents, n_topics], mean=0,
 							 stddev=1 / np.sqrt(n_documents + n_topics)),
-				name="doc_embeddings") if W is None else W)
+				name="doc_embeddings") if W_in is None else W_in)
 		self.factors = (tf.Variable(factors, name="topics") # topic vectors
-						if factors is None else factors)
+						if factors_in is None else factors_in)
 
 	def __call__(self, doc_ids, update_only_docs=False):
 		""" Given an array of document integer indices, returns a vector
@@ -95,8 +97,8 @@ class EmbedMixture():
 		# 	factors.unchain_backward()
 
 		# topic weights projected onto topic vectors
-		print("props ", proportions.get_shape())
-		print("factors ", factors.get_shape())
+		# print("props ", proportions.get_shape())
+		# print("factors ", factors.get_shape())
 		w_sum = tf.matmul(proportions, factors)
 		return w_sum
 
@@ -107,11 +109,11 @@ class EmbedMixture():
 			doc_weights : chainer.Variable
 				Two dimensional topic weights of each document.
 		"""
-		print("doc_ids", doc_ids.get_shape())
-		print("W", self.W.get_shape())
+		# print("doc_ids", doc_ids.get_shape())
+		# print("W", self.W.get_shape())
 		w = tf.nn.embedding_lookup(self.W, doc_ids, # embedded docs
 								   name="doc_proportions")
-		print("w", w.get_shape())
+		# print("w", w.get_shape())
 
 		if softmax: # probabilize == sum to 1
 			# TODO unclear what purpose masking serves here
