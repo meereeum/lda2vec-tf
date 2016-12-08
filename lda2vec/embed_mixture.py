@@ -58,23 +58,22 @@ class EmbedMixture():
 		self.n_dim = n_dim
 		self.keep_prob = keep_prob
 		self.temperature = temperature
+
+		scalar = 1 / np.sqrt(n_documents + n_topics)
 		factors = _orthogonal_matrix((n_topics, n_dim)).astype("float32")
-		factors /= np.sqrt(n_topics + n_dim)
-		# ?
-		# super(EmbedMixture, self).__init__(
-		# 	weights=L.EmbedID(n_documents, n_topics),
-		# 	factors=L.Parameter(factors))
-		# self.weights.W.data[...] /= np.sqrt(n_documents + n_topics)
-		# self.weights /= np.sqrt(n_documents + n_topics)
-		print("factors", factors.shape)
-		print("n_docs", n_documents)
-		print("n_topics", n_topics)
+		factors *= scalar
+
 		self.W = (tf.Variable( # unnormalized embedding weights
-			tf.random_normal([n_documents, n_topics], mean=0,
-							 stddev=1 / np.sqrt(n_documents + n_topics)),
+			tf.random_normal([n_documents, n_topics], mean=0, stddev=scalar),
+							 # stddev=1 / np.sqrt(n_documents + n_topics)),
 				name="doc_embeddings") if W_in is None else W_in)
 		self.factors = (tf.Variable(factors, name="topics") # topic vectors
 						if factors_in is None else factors_in)
+		# tf 0.12.0 only
+		# self.factors = (tf.get_variable("topics", shape=(n_topics, n_dim),
+		# 								dtype=tf.float32, initializer=
+		# 								tf.orthogonal_initializer(gain=scalar))
+		# 				if factors_in is None else factors_in)
 
 	def __call__(self, doc_ids, update_only_docs=False):
 		""" Given an array of document integer indices, returns a vector
@@ -97,8 +96,6 @@ class EmbedMixture():
 		# 	factors.unchain_backward()
 
 		# topic weights projected onto topic vectors
-		# print("props ", proportions.get_shape())
-		# print("factors ", factors.get_shape())
 		w_sum = tf.matmul(proportions, factors)
 		return w_sum
 
@@ -109,11 +106,8 @@ class EmbedMixture():
 			doc_weights : chainer.Variable
 				Two dimensional topic weights of each document.
 		"""
-		# print("doc_ids", doc_ids.get_shape())
-		# print("W", self.W.get_shape())
 		w = tf.nn.embedding_lookup(self.W, doc_ids, # embedded docs
 								   name="doc_proportions")
-		# print("w", w.get_shape())
 
 		if softmax: # probabilize == sum to 1
 			# TODO unclear what purpose masking serves here
