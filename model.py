@@ -13,20 +13,21 @@ from lda2vec import utils
 class LDA2Vec():
 
 	DEFAULTS = {
-		"n_document_topics": 10,
-		"n_embedding": 256, # embedding size
+		"n_document_topics": 15,
+		"n_embedding": 100, # embedding size
 
-		"batch_size": 128,
+		"batch_size": 264,
 		"window": 5,
-		"learning_rate": 0.1,
-		"dropout_ratio": 0.5, # keep_prob
+		"learning_rate": 1.0,#0.1,
+		"dropout_ratio": 0.8, # keep_prob
 		"word_dropout": 0., # dropout (?)
 
-		"power": 0.75, # negative sampling power - TODO ?
+		# "power": 0.75, # negative sampling power - TODO ?
 		"n_samples": 15, # num negative samples
 
 		"temperature": 1.0, # embed mixture temp
-		"lmbda": 200. # strength of Dirichlet prior
+		"lmbda": 200., # strength of Dirichlet prior
+		"alpha": None # alpha of Dirichlet process (defaults to 1/n_topics)
 	}
 	RESTORE_KEY = "to_restore"
 
@@ -66,7 +67,8 @@ class LDA2Vec():
 
 		# unpack tensor ops to feed or fetch
 		(self.pivot_idxs, self.doc_at_pivot, self.dropout, self.target_idxs,
-		 self.n_corpus, self.loss_word2vec, self.loss_lda, self.update_accum_loss,
+		 self.fraction,#self.n_corpus,
+		 self.loss_word2vec, self.loss_lda, self.update_accum_loss,
 		 self.reset_accum_loss, self.global_step, self.train_op,
 		 self.doc_embeds, self.topics, self.word_embeds) = handles
 
@@ -77,7 +79,7 @@ class LDA2Vec():
 	@property
 	def step(self):
 		"""Train step"""
-		return self.global_step.eval(session=self.sesh)
+		return self.sesh.run(self.global_step)
 
 
 	def _buildGraph(self):
@@ -122,10 +124,11 @@ class LDA2Vec():
 
 		# dirichlet loss (proportional to minibatch fraction)
 		with tf.name_scope("lda_loss"):
-			n_corpus = tf.placeholder(tf.int32, [], name="n_corpus")
-			fraction = tf.cast(self.batch_size / n_corpus, tf.float32)
+			# n_corpus = tf.placeholder(tf.int32, [], name="n_corpus")
+			fraction = tf.Variable(1, trainable=False, dtype=tf.float32)
+			# fraction = tf.cast(self.batch_size / n_corpus, tf.float32)
 			loss_lda = fraction * self.prior() # dirichlet log-likelihood
-			# loss_lda = utils.print_(loss_lda, "loss_lda")
+			loss_lda = utils.print_(loss_lda, "loss_lda")
 			# TODO penalize weights ?
 
 		# optimize
@@ -137,14 +140,14 @@ class LDA2Vec():
 
 		# check = tf.add_check_numerics_ops()
 
-		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, n_corpus, #losses,
+		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, fraction,#n_corpus, #losses,
 				accum_loss_word2vec, loss_lda,
 				accum_loss_update, accum_loss_reset, global_step, train_op)
 
 
-	def prior(self, alpha=None):
+	def prior(self):
 		# defaults to inialization with uniform prior (1/n_topics)
-		return dirichlet_likelihood(self.mixture.W, alpha=alpha)
+		return dirichlet_likelihood(self.mixture.W, alpha=self.alpha)
 
 
 	def fit_partial(self, doc_ids, word_indices, window=None,
@@ -196,8 +199,8 @@ class LDA2Vec():
 		return accum_loss
 
 
-	def train(self, doc_ids, flattened, max_epochs=100, verbose=True,
-			  save=False, outdir="./out"):
+	def train(self, doc_ids, flattened, max_epochs=1000, verbose=True,
+			  save=False, save_every=50, outdir="./out"):
 
 		if save:
 			saver = tf.train.Saver(tf.all_variables())
@@ -208,6 +211,8 @@ class LDA2Vec():
 
 		# feed_dict = {self.n_corpus: len(flattened)}
 		# _ = self.sesh.run(self.fra, feed_dict=feed_dict) # assign n_corpus
+		fraction = self.batch_size / len(flattened)
+		self.sesh.run(tf.assign(self.fraction, fraction))
 
 		now = datetime.now().isoformat()[11:]
 		print("------- Training begin: {} -------\n".format(now))
@@ -237,26 +242,33 @@ class LDA2Vec():
 
 				loss_word2vec = self.fit_partial(d, f)
 
-				feed_dict = {self.n_corpus: len(flattened)}
-				fetches = [self.loss_lda, self.train_op]
-				loss_lda, _ = self.sesh.run(fetches, feed_dict=feed_dict)
+				# feed_dict = {self.n_corpus: len(flattened)}
+				# fetches = [self.loss_lda, self.train_op]
+				# loss_lda, _ = self.sesh.run(fetches, feed_dict=feed_dict)
+				loss_lda, _ = self.sesh.run([self.loss_lda, self.train_op])
 
 				self.sesh.run(self.reset_accum_loss)
 
-				# msg = ("J:{j:05d} E:{epoch:05d} L:{loss:1.3e} "
-				# 	"P:{prior:1.3e} R:{rate:1.3e}")
-				msg = ("J:{j:05d} E:{epoch:05d} L_nce:{l_word2vec:1.3e} "
-					   "L_dirichlet:{l_lda:1.3e} R:{rate:1.3e}")
-
-				t1 = datetime.now().timestamp()
-				dt = t1 - t0
-				rate = self.batch_size / dt
-				logs = dict(l_word2vec=loss_word2vec, epoch=epoch, j=j,
-							l_lda=loss_lda, rate=rate)
 				j += 1
 
-				if verbose:
+				if verbose and j % 1000 == 0:
+					# msg = ("J:{j:05d} E:{epoch:05d} L:{loss:1.3e} "
+					# 	"P:{prior:1.3e} R:{rate:1.3e}")
+					msg = ("J:{j:05d} E:{epoch:05d} L_nce:{l_word2vec:1.3e} "
+						   "L_dirichlet:{l_lda:1.3e} R:{rate:1.3e}")
+
+					t1 = datetime.now().timestamp()
+					dt = t1 - t0
+					rate = self.batch_size / dt
+					logs = dict(l_word2vec=loss_word2vec, epoch=epoch, j=j,
+								l_lda=loss_lda, rate=rate)
+
 					print(msg.format(**logs))
+
+				if save and j % save_every == 0:
+					outfile = os.path.join(os.path.abspath(outdir),
+										   "{}_lda2vec".format(self.datetime))
+					saver.save(self.sesh, outfile, global_step=self.step)
 
 		now = datetime.now().isoformat()[11:]
 		print("------- Training end: {} -------\n".format(now))
@@ -271,3 +283,82 @@ class LDA2Vec():
 			self.logger.close()
 		except(AttributeError): # not logging
 			pass
+
+
+	def _buildGraph_similarity(self):
+		"""Build nodes to compute the cosine similarity between examples
+		(doc/word/topic idxs) and corresponding embeddings
+		"""
+		idxs_in = tf.placeholder(tf.int32,
+							  shape=[None,], # None enables variable batch size
+							  name="idxs") # doc or word
+
+		n = tf.placeholder_with_default(10, shape=None, name="n")
+
+		word_embed = self.word_embeds
+		topic_embed = self.topics
+		doc_embed = tf.matmul(tf.nn.softmax(self.doc_embeds), topic_embed)
+
+		normalized_embedding = dict()
+		for name, embedding in zip(("word", "topic", "doc"),
+								   (word_embed, topic_embed, doc_embed)):
+			norm = tf.sqrt(tf.reduce_sum(embedding**2, 1, keep_dims=True))
+			normalized_embedding[name] = embedding / norm
+
+		similarities = dict()
+		for in_, vs in (("word", "word"),
+						("word", "topic"),
+						("topic", "word"),
+						("doc", "doc")):
+			embeddings_in = tf.nn.embedding_lookup(normalized_embedding[in_], idxs)
+			similarity = tf.matmul(embeddings_in, normalized_embedding[vs],
+								   transpose_b=True)
+			values, top_idxs = tf.nn.top_k(similarity, sorted=True, k=n)
+			top_sims = tf.gather_nd(similarity, top_idxs)
+			similarities[(in_, vs)] = [top_idxs, top_sims]
+
+		return (idxs_in, n, similarities)
+
+
+	def compute_similarity(self, ids, in_, vs, n=10):
+		"""Compute the cosine similarity between minibatch examples
+		and all embeddings.
+
+		Args: ids (1-D array of idxs)
+		      in_ = "doc" or "word" or "topic" (corresponding to ids)
+		      vs = "doc" or "word" or "topic" (corresponding to embedding to compare)
+		"""
+		while True:
+			try:
+				feed_dict = {self.idxs_in: ids, self.n: n}
+				fetches = self.similarities[(in_, vs)]
+				top_idxs, top_sims = self.sesh.run(fetches, feed_dict=feed_dict)
+				return np.concatenate(top_idxs, top_sims)
+
+			except(AttributeError): # not yet initialized
+				(self.idxs_in, self.n,
+				 self.similarities) = self._buildGraph_similarity()
+
+
+	# def validate(self, doc_ids, flattened, save=False):
+
+	# 	loss_word2vec = self.fit_partial(doc_ids, flattened)
+
+	# 	loss_lda = self.sesh.run(self.prior(), feed_dict=feed_dict)
+
+	# 	loss = loss_word2vec + self.lmbda * loss_lda
+
+	# 	if verbose and j % 1000 == 0:
+	# 			# msg = ("J:{j:05d} E:{epoch:05d} L:{loss:1.3e} " # 			# 	"P:{prior:1.3e} R:{rate:1.3e}")
+	# 			msg = ("J:{j:05d} E:{epoch:05d} L_nce:{l_word2vec:1.3e} "
+	# 					"L_dirichlet:{l_lda:1.3e} R:{rate:1.3e}")
+
+	# 			t1 = datetime.now().timestamp()
+	# 			dt = t1 - t0
+	# 			rate = self.batch_size / dt
+	# 			logs = dict(l_word2vec=loss_word2vec, epoch=epoch, j=j,
+	# 					l_lda=loss_lda, rate=rate)
+
+	# 			print(msg.format(**logs))
+
+	# 	if sa
