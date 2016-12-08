@@ -39,7 +39,7 @@ class NegativeSampling():
 	.. seealso:: :class:`~chainer.links.NegativeSampling`.
 	"""
 
-	IGNORE_LABEL = -1
+	IGNORE_LABEL_MAX = 1 # ignore any labels <=1 (OOV or skip)
 
 	def __init__(self, embedding_size, vocabulary_size, sample_size):
 		# via https://github.com/tensorflow/tensorflow/blob/r0.11/tensorflow/examples/tutorials/word2vec/word2vec_basic.py
@@ -51,20 +51,21 @@ class NegativeSampling():
 				tf.random_uniform([vocabulary_size, embedding_size], -1., 1.),
 				name="word_embeddings")
 
+		self.W = utils.print_(self.W, "embedding")
+
 		# Construct the variables for the NCE loss
 		self.nce_weights = tf.Variable(
 				tf.truncated_normal([vocabulary_size, embedding_size],
-									stddev=tf.sqrt(1/embedding_size)),
+									stddev=tf.sqrt(1 / embedding_size)),
 				name="nce_weights")
 		self.nce_biases = tf.Variable(tf.zeros([vocabulary_size]),
 									  name="nce_biases")
 
-	# def __call__(self, train_inputs, train_labels):
 	def __call__(self, embed, train_labels):
 
 		with tf.name_scope("negative_sampling"):
-			# mask OOV
-			mask = tf.greater(train_labels, 0) # ignores skip or oov
+			# mask out skip or OOV
+			mask = tf.greater(train_labels, NegativeSampling.IGNORE_LABEL_MAX)
 			# mask = tf.not_equal(train_labels, NegativeSampling.IGNORE_LABEL)
 			train_labels = tf.expand_dims(tf.boolean_mask(train_labels, mask), -1)
 			embed = tf.boolean_mask(embed, mask)
@@ -72,6 +73,8 @@ class NegativeSampling():
 			# Compute the average NCE loss for the batch.
 			# tf.nce_loss automatically draws a new sample of the negative labels each
 			# time we evaluate the loss.
+			# By default this uses a log-uniform (Zipfian) distribution for sampling
+			# and therefore assumes labels are sorted - which they are!
 			loss = tf.reduce_mean(
 					tf.nn.nce_loss(self.nce_weights, self.nce_biases,
 							embed, # summed doc and context embedding
