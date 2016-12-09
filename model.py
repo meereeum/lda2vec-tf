@@ -81,7 +81,8 @@ class LDA2Vec():
 	@property
 	def step(self):
 		"""Train step"""
-		return self.sesh.run(self.global_step)
+		# return self.sesh.run(self.global_step)
+		return tf.train.global_step(self.sesh, self.global_step)
 
 
 	def _buildGraph(self):
@@ -137,16 +138,27 @@ class LDA2Vec():
 			accum_loss_word2vec + self.lmbda * loss_lda,
 			global_step, self.learning_rate, "Adam", clip_gradients=5.)
 
-		# check = tf.add_check_numerics_ops()
-
-		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, fraction,#n_corpus, #losses,
-				accum_loss_word2vec, loss_lda,
-				accum_loss_update, accum_loss_reset, global_step, train_op)
+		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, fraction,
+				accum_loss_word2vec, loss_lda, accum_loss_update,
+				accum_loss_reset, global_step, train_op)
 
 
 	def prior(self):
 		# defaults to inialization with uniform prior (1/n_topics)
 		return dirichlet_likelihood(self.mixture.W, alpha=self.alpha)
+
+	def _addSummaries(self):
+		# summary nodes
+		tf.scalar_summary("loss_lda", self.loss_lda)
+		tf.scalar_summary("loss_nce", self.loss_word2vec) # TODO running avg
+		tf.histogram_summary("word_embeddings_hist", self.word_embeds)
+		tf.histogram_summary("topic_embeddings_hist", self.topics)
+		tf.histogram_summary("doc_embeddings_hist", self.doc_embeds)
+		tf.scalar_summary("doc_mixture_sparsity",
+						  tf.nn.zero_fraction(self.doc_proportions))
+		# self.check = tf.add_check_numerics_ops()
+
+		return tf.merge_all_summaries()
 
 
 	def fit_partial(self, doc_ids, word_indices, window=None,
@@ -199,11 +211,18 @@ class LDA2Vec():
 		return accum_loss
 
 
-	def train(self, doc_ids, flattened, max_epochs=1000, verbose=True,
-			  save=False, save_every=50, outdir="./out"):
+	def train(self, doc_ids, flattened, max_epochs=np.inf, verbose=True,
+			  save=False, save_every=1000, outdir="./out", summarize=True,
+			  summarize_every=1000):#, summaries_dir="./summaries"):
 
 		if save:
+			# outdir = "{}_{}".format(outdir, self.datetime)
 			saver = tf.train.Saver(tf.all_variables())
+
+		if summarize:
+			merged = self._addSummaries()
+			# summarizer = tf.train.SummaryWriter(summaries_dir)
+			summarizer = tf.train.SummaryWriter(self.log_dir)
 
 		j = 0
 		epoch = 0
@@ -251,6 +270,12 @@ class LDA2Vec():
 					outfile = os.path.join(os.path.abspath(outdir),
 										   "{}_lda2vec".format(self.datetime))
 					saver.save(self.sesh, outfile, global_step=self.step)
+
+				if summarize and j % summarize_every == 0:
+					summary = self.sesh.run(merged)
+					summarizer.add_summary(summary, global_step=self.step)
+
+			epoch += 1
 
 		now = datetime.now().isoformat()[11:]
 		print("------- Training end: {} -------\n".format(now))
