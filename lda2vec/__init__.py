@@ -1,7 +1,7 @@
 import sys
 import os.path
 
-assert sys.version_info.major == 3, "Must use Python3!"
+assert sys.version_info.major == 3, "Must use Python 3!"
 
 sys.path.append(os.path.dirname(__file__))
 
