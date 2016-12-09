@@ -4,15 +4,6 @@ import numpy as np
 import tensorflow as tf
 
 
-# def move(xp, *args): # xp == tf.Variable ?
-# def move(xp, *args):
-# 	for arg in args:
-# 		if 'float' in str(arg.dtype):
-# 			yield Variable(xp.asarray(arg, dtype='float32'))
-# 		else:
-# 			assert 'int' in str(arg.dtype)
-# 			yield Variable(xp.asarray(arg, dtype='int32'))
-
 # def print_(var, name=None, first_n=5, summarize=5):
 def print_(var, name: str, first_n=10, summarize=5):
 	"""Util for debugging, by printing values of tf.Variable `var` during training"""
@@ -36,10 +27,10 @@ def print_(var, name: str, first_n=10, summarize=5):
 
 
 
-def most_similar(embeddings, word_index):
-	input_vector = tf.nn.embedding_lookup(embeddings, word_index)
-	similarities = tf.matmul(embeddings, input_vector)
-	return similarities
+# def most_similar(embeddings, word_index):
+# 	input_vector = tf.nn.embedding_lookup(embeddings, word_index)
+# 	similarities = tf.matmul(embeddings, input_vector)
+# 	return similarities
 
 
 def chunks(n, *args):
@@ -53,20 +44,20 @@ def chunks(n, *args):
 		yield [arg[a: b] for arg in args]
 
 
-class MovingAverage():
-	def __init__(self, lastn=100):
-		self.points = np.array([])
-		self.lastn = lastn
+# class MovingAverage():
+# 	def __init__(self, lastn=100):
+# 		self.points = np.array([])
+# 		self.lastn = lastn
 
-	def add(self, x):
-		self.points = np.append(self.points, x)
+# 	def add(self, x):
+# 		self.points = np.append(self.points, x)
 
-	def mean(self):
-		return np.mean(self.points[-self.lastn:])
+# 	def mean(self):
+# 		return np.mean(self.points[-self.lastn:])
 
-	def std(self):
-		return np.std(self.points[-self.lastn:])
+# 	def std(self):
+# 		return np.std(self.points[-self.lastn:])
 
-	def get_stats(self):
-		return (np.mean(self.points[-self.lastn:]),
-				np.std(self.points[-self.lastn:]))
+# 	def get_stats(self):
+# 		return (np.mean(self.points[-self.lastn:]),
+# 				np.std(self.points[-self.lastn:]))
