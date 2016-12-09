@@ -14,7 +14,7 @@ import tensorflow as tf
 # 			yield Variable(xp.asarray(arg, dtype='int32'))
 
 # def print_(var, name=None, first_n=5, summarize=5):
-def print_(var, name: str, first_n=5, summarize=5):
+def print_(var, name: str, first_n=10, summarize=5):
 	"""Util for debugging, by printing values of tf.Variable `var` during training"""
 
 	# name = (next(k for k, v in globals().items() if v == var) # get name automagically
