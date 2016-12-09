@@ -39,7 +39,7 @@ class NegativeSampling():
 	.. seealso:: :class:`~chainer.links.NegativeSampling`.
 	"""
 
-	IGNORE_LABEL_MAX = 1 # ignore any labels <=1 (OOV or skip)
+	# IGNORE_LABEL_MAX = 1 # ignore any labels <=1 (OOV or skip)
 
 	def __init__(self, embedding_size, vocabulary_size, sample_size, power=1.,
 				 W_in=None):
@@ -68,10 +68,14 @@ class NegativeSampling():
 
 		with tf.name_scope("negative_sampling"):
 			# mask out skip or OOV
-			mask = tf.greater(train_labels, NegativeSampling.IGNORE_LABEL_MAX)
-			# mask = tf.not_equal(train_labels, NegativeSampling.IGNORE_LABEL)
-			train_labels = tf.expand_dims(tf.boolean_mask(train_labels, mask), -1)
-			embed = tf.boolean_mask(embed, mask)
+			# if switched on, this yields ...
+			# UserWarning: Converting sparse IndexedSlices to a dense Tensor of unknown shape. This may consume a large amount of memory.
+
+			# mask = tf.greater(train_labels, NegativeSampling.IGNORE_LABEL_MAX)
+			# # mask = tf.not_equal(train_labels, NegativeSampling.IGNORE_LABEL)
+			# embed = tf.boolean_mask(embed, mask)
+			# train_labels = tf.expand_dims(tf.boolean_mask(train_labels, mask), -1)
+			train_labels = tf.expand_dims(train_labels, -1)
 
 			# Compute the average NCE loss for the batch.
 			# tf.nce_loss automatically draws a new sample of the negative labels each
