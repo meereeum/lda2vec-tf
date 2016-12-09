@@ -98,7 +98,6 @@ class LDA2Vec():
 		# doc
 		doc_at_pivot = tf.placeholder(tf.int32, shape=[None,], name="doc_ids")
 		doc = self.mixture(doc_at_pivot) # doc embedding
-		#, update_only_docs=update_only_docs)
 
 		# context is sum of doc (mixture projected onto topics) & pivot embedding
 		dropout = self.mixture.dropout
@@ -207,10 +206,10 @@ class LDA2Vec():
 
 		if summarize:
 			merged = self._addSummaries()
-			# try:
-			# 	self.logger.flush()
-			# except(AttributeError): # not yet logging
-			# 	self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
+			try:
+				self.logger.flush()
+			except(AttributeError): # not yet logging
+				self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
 
 		j = 0
 		epoch = 0
@@ -221,17 +220,18 @@ class LDA2Vec():
 		now = datetime.now().isoformat()[11:]
 		print("------- Training begin: {} -------\n".format(now))
 
-		try:
-			while epoch < max_epochs:
+		while epoch < max_epochs:
+			try:
 
 				# doc_ids, word_idxs
 				for d, f in utils.chunks(self.batch_size, doc_ids, flattened):
 					t0 = datetime.now().timestamp()
 
 					feed_dict = self.make_feed_dict(d, f)
+
 					fetches = [self.loss_lda, self.loss_word2vec,
-							   self.loss, self.train_op]
-					loss_lda, loss_word2vec, loss, _ = self.sesh.run(
+							   self.loss, merged, self.train_op]
+					loss_lda, loss_word2vec, loss, summary, _ = self.sesh.run(
 						fetches, feed_dict=feed_dict)
 
 					j += 1
@@ -254,30 +254,30 @@ class LDA2Vec():
 						saver.save(self.sesh, outfile, global_step=self.step)
 
 					if summarize and j % summarize_every == 0:
-						summary = self.sesh.run(merged)
 						self.logger.add_summary(summary, global_step=self.step)
 
 				epoch += 1
 
-		except(KeyboardInterrupt):
+			except(KeyboardInterrupt):
+				break
+
+		print("epoch", epoch)
+		print("max", max_epochs)
+		now = datetime.now().isoformat()[11:]
+		print("------- Training end: {} -------\n".format(now))
+
+		if save:
+			outfile = os.path.join(os.path.abspath(outdir),
+								   "{}_lda2vec".format(self.datetime))
+			saver.save(self.sesh, outfile, global_step=self.step)
+
+		try:
+			self.logger.flush()
+			self.logger.close()
+		except(AttributeError): # not logging
 			pass
 
-		finally:
-			now = datetime.now().isoformat()[11:]
-			print("------- Training end: {} -------\n".format(now))
-
-			if save:
-				outfile = os.path.join(os.path.abspath(outdir),
-									   "{}_lda2vec".format(self.datetime))
-				saver.save(self.sesh, outfile, global_step=self.step)
-
-			try:
-				self.logger.flush()
-				self.logger.close()
-			except(AttributeError): # not logging
-				pass
-
-			sys.exit(0)
+		sys.exit(0)
 
 
 	def _buildGraph_similarity(self):
