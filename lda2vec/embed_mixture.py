@@ -51,31 +51,32 @@ class EmbedMixture():
 	.. seealso:: :func:`lda2vec.dirichlet_likelihood`
 	"""
 
-	def __init__(self, n_documents, n_topics, n_dim, keep_prob=0.8,
-				 temperature=1.0, W_in=None, factors_in=None):
+	def __init__(self, n_documents, n_topics, n_dim, temperature=1.0,
+				 W_in=None, factors_in=None):
 		self.n_documents = n_documents
-		self.n_topics = n_topics
-		self.n_dim = n_dim
-		self.keep_prob = keep_prob
+		# self.n_topics = n_topics
+		# self.n_dim = n_dim
 		self.temperature = temperature
+		self.dropout = tf.placeholder_with_default(1., shape=[], name="dropout")
 
 		scalar = 1 / np.sqrt(n_documents + n_topics)
-		factors = _orthogonal_matrix((n_topics, n_dim)).astype("float32")
-		factors *= scalar
 
 		self.W = (tf.Variable( # unnormalized embedding weights
 			tf.random_normal([n_documents, n_topics], mean=0, stddev=scalar),
-							 # stddev=1 / np.sqrt(n_documents + n_topics)),
 				name="doc_embeddings") if W_in is None else W_in)
-		self.factors = (tf.Variable(factors, name="topics") # topic vectors
-						if factors_in is None else factors_in)
+
+		factors = (tf.Variable( # topic vectors
+				_orthogonal_matrix((n_topics, n_dim)).astype("float32") * scalar,
+				name="topics") if factors_in is None else factors_in)
+		self.factors = tf.nn.dropout(factors, self.dropout)
+
 		# tf 0.12.0 only
 		# self.factors = (tf.get_variable("topics", shape=(n_topics, n_dim),
 		# 								dtype=tf.float32, initializer=
 		# 								tf.orthogonal_initializer(gain=scalar))
 		# 				if factors_in is None else factors_in)
 
-	def __call__(self, doc_ids, update_only_docs=False):
+	def __call__(self, doc_ids=None, update_only_docs=False):
 		""" Given an array of document integer indices, returns a vector
 		for each document. The vector is composed of topic weights projected
 		onto topic vectors.
@@ -86,28 +87,32 @@ class EmbedMixture():
 			doc_vector : chainer.Variable
 				Batch of two-dimensional embeddings for every document.
 		"""
-		# (batchsize, ) --> (batchsize, multinomial)
+		# defaults to returning full set of embedded doc proportions
+		# doc embed weights -> multinomial
 		proportions = self.proportions(doc_ids, softmax=True)
-		# (batchsize, n_factors) * (n_factors, n_dim) --> (batchsize, n_dim)
-		factors = tf.nn.dropout(self.factors, keep_prob=self.keep_prob)
 
 		# ?
 		# if update_only_docs:
 		# 	factors.unchain_backward()
 
+		# (batchsize, n_factors) * (n_factors, n_dim) --> (batchsize, n_dim)
 		# topic weights projected onto topic vectors
-		w_sum = tf.matmul(proportions, factors)
+		w_sum = tf.matmul(proportions, self.factors)
 		return w_sum
 
-	def proportions(self, doc_ids, softmax=False):
+	def proportions(self, doc_ids=None, softmax=False):
 		""" Given an array of document indices, return a vector
 		for each document of just the unnormalized topic weights.
 		Returns:
 			doc_weights : chainer.Variable
 				Two dimensional topic weights of each document.
 		"""
-		w = tf.nn.embedding_lookup(self.W, doc_ids, # embedded docs
-								   name="doc_proportions")
+		# defaults to returning full set of embedded doc proportions
+		# doc_ids = (np.arange(self.n_documents) if doc_ids is None else doc_ids)
+
+		w = (self.W if doc_ids is None else
+			 tf.nn.embedding_lookup(self.W, doc_ids, # embedded docs
+								   name="doc_proportions"))
 
 		if softmax: # probabilize == sum to 1
 			# TODO unclear what purpose masking serves here
