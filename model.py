@@ -1,5 +1,6 @@
 from datetime import datetime
 import os
+import sys
 
 import numpy as np
 import tensorflow as tf
@@ -23,9 +24,9 @@ class LDA2Vec():
 		"word_dropout": 0.8, #1.
 
 		"power": 0.75, # unigram sampler distortion TODO - not implemented
-		"n_samples": 15, # num negative samples
+		"n_samples": 50,#15, # num negative samples
 
-		"temperature": 1.0, # embed mixture temp
+		"temperature": 1., # embed mixture temp
 		"lmbda": 200., # strength of Dirichlet prior
 		"alpha": None # alpha of Dirichlet process (defaults to 1/n_topics)
 	}
@@ -76,6 +77,7 @@ class LDA2Vec():
 		self.log_dir = "{}_{}".format(log_dir, self.datetime)
 		if save_graph_def: # tensorboard
 			self.logger = tf.train.SummaryWriter(self.log_dir, self.sesh.graph)
+			self.logger.flush()
 
 
 	@property
@@ -150,7 +152,7 @@ class LDA2Vec():
 	def _addSummaries(self):
 		# summary nodes
 		tf.scalar_summary("loss_lda", self.loss_lda)
-		tf.scalar_summary("loss_nce", self.loss_word2vec) # TODO running avg
+		tf.scalar_summary("loss_nce", self.loss_word2vec)
 		tf.histogram_summary("word_embeddings_hist", self.word_embeds)
 		tf.histogram_summary("topic_embeddings_hist", self.topics)
 		tf.histogram_summary("doc_embeddings_hist", self.doc_embeds)
@@ -173,7 +175,6 @@ class LDA2Vec():
 
 		doc_at_pivot = doc_ids[window: -window]
 
-		loss = 0.
 		start, end = window, word_indices.shape[0] - window
 
 		for frame in range(-window, window + 1):
@@ -236,43 +237,47 @@ class LDA2Vec():
 		now = datetime.now().isoformat()[11:]
 		print("------- Training begin: {} -------\n".format(now))
 
-		while epoch < max_epochs:
+		try:
+			while epoch < max_epochs:
 
-			# doc_ids, word_idxs
-			for d, f in utils.chunks(self.batch_size, doc_ids, flattened):
-				t0 = datetime.now().timestamp()
+				# doc_ids, word_idxs
+				for d, f in utils.chunks(self.batch_size, doc_ids, flattened):
+						t0 = datetime.now().timestamp()
 
-				loss_word2vec = self.fit_partial(d, f)
+						loss_word2vec = self.fit_partial(d, f)
 
-				loss_lda, _ = self.sesh.run([self.loss_lda, self.train_op])
-				# self.sesh.run(self.reset_accum_loss)
+						loss_lda, _ = self.sesh.run([self.loss_lda, self.train_op])
+						# self.sesh.run(self.reset_accum_loss)
 
-				j += 1
+						j += 1
 
-				if verbose and j % 1000 == 0:
-					msg = ("J:{j:05d} E:{epoch:05d} L_nce:{l_word2vec:1.3e} "
-						   "L_dirichlet:{l_lda:1.3e} R:{rate:1.3e}")
+						if verbose and j % 1000 == 0:
+							msg = ("J:{j:05d} E:{epoch:05d} L_nce:{l_word2vec:1.3e} "
+								   "L_dirichlet:{l_lda:1.3e} R:{rate:1.3e}")
 
-					t1 = datetime.now().timestamp()
-					dt = t1 - t0
-					rate = self.batch_size / dt
-					logs = dict(l_word2vec=loss_word2vec, epoch=epoch, j=j,
-								l_lda=loss_lda, rate=rate)
+							t1 = datetime.now().timestamp()
+							dt = t1 - t0
+							rate = self.batch_size / dt
+							logs = dict(l_word2vec=loss_word2vec, epoch=epoch, j=j,
+										l_lda=loss_lda, rate=rate)
 
-					print(msg.format(**logs))
+							print(msg.format(**logs))
 
-				if save and j % save_every == 0:
-					outfile = os.path.join(os.path.abspath(outdir),
-										   "{}_lda2vec".format(self.datetime))
-					saver.save(self.sesh, outfile, global_step=self.step)
+						if save and j % save_every == 0:
+							outfile = os.path.join(os.path.abspath(outdir),
+												   "{}_lda2vec".format(self.datetime))
+							saver.save(self.sesh, outfile, global_step=self.step)
 
-				if summarize and j % summarize_every == 0:
-					summary = self.sesh.run(merged)
-					self.logger.add_summary(summary, global_step=self.step)
+						if summarize and j % summarize_every == 0:
+							summary = self.sesh.run(merged)
+							self.logger.add_summary(summary, global_step=self.step)
 
-				self.sesh.run(self.reset_accum_loss)
+						self.sesh.run(self.reset_accum_loss)
 
-			epoch += 1
+				epoch += 1
+
+		except(KeyboardInterrupt):
+			continue
 
 		now = datetime.now().isoformat()[11:]
 		print("------- Training end: {} -------\n".format(now))
@@ -287,6 +292,8 @@ class LDA2Vec():
 			self.logger.close()
 		except(AttributeError): # not logging
 			pass
+
+		sys.exit(0)
 
 
 	def _buildGraph_similarity(self):
