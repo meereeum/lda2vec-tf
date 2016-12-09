@@ -97,7 +97,6 @@ class LDA2Vec():
 		# doc
 		doc_at_pivot = tf.placeholder(tf.int32, shape=[None,], name="doc_ids")
 		doc = self.mixture(doc_at_pivot) # doc embedding
-		#, update_only_docs=update_only_docs)
 
 		# context is sum of doc (mixture projected onto topics) & pivot embedding
 		dropout = self.mixture.dropout
@@ -115,15 +114,8 @@ class LDA2Vec():
 			accum_loss_word2vec = tf.Variable(0, dtype=tf.float32, trainable=False)
 
 			accum_loss_update = accum_loss_word2vec.assign_add(loss_word2vec)
-			# accum_loss_word2vec = accum_loss_word2vec.assign_add(loss_word2vec)
-			# accum_loss_word2vec = utils.print_(accum_loss_word2vec, "word2vec_accum")
-
-			# accum_loss_reset = accum_loss_word2vec.assign_sub(accum_loss_word2vec)
 			accum_loss_reset = tf.assign(accum_loss_word2vec,
 					tf.Variable(0, dtype=tf.float32, trainable=False))
-			# accum_loss_word2vec = utils.print_(accum_loss_word2vec,
-			# 								   "accum_loss_word2vec")
-
 
 		# dirichlet loss (proportional to minibatch fraction)
 		with tf.name_scope("lda_loss"):
@@ -168,10 +160,6 @@ class LDA2Vec():
 		window = (self.window if window is None else window)
 		pivot_idx = word_indices[window: -window]
 
-		# if update_only_docs:
-			# pivot.unchain_backward()
-			# tf.stop_gradient(tensor) OR optimizer.minimize(loss, var_list=[your variables])
-
 		doc_at_pivot = doc_ids[window: -window]
 
 		start, end = window, word_indices.shape[0] - window
@@ -188,8 +176,7 @@ class LDA2Vec():
 			doc_at_target = doc_ids[start + frame: end + frame]
 			doc_is_same = doc_at_target == doc_at_pivot
 			rand = np.random.uniform(0, 1, doc_is_same.shape[0])
-			# mask = (rand > self.word_dropout).astype("bool")
-			mask = (rand < self.word_dropout).astype("bool")
+			mask = (rand < self.word_dropout)
 			weight = np.logical_and(doc_is_same, mask).astype("int32")
 
 			# If weight is 1.0 then targetidx
@@ -203,10 +190,6 @@ class LDA2Vec():
 
 			accum_loss = self.sesh.run(self.update_accum_loss,
 									   feed_dict=feed_dict)
-
-			# if update_only_docs:
-			# 	# Wipe out any gradient accumulation on word vectors
-			# 	self.sampler.W.grad *= 0.0
 
 		return accum_loss
 
@@ -224,10 +207,10 @@ class LDA2Vec():
 
 		if summarize:
 			merged = self._addSummaries()
-			# try:
-			# 	self.logger.flush()
-			# except(AttributeError): # not yet logging
-			# 	self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
+			try:
+				self.logger.flush()
+			except(AttributeError): # not yet logging
+				self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
 
 		j = 0
 		epoch = 0
