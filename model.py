@@ -16,13 +16,13 @@ class LDA2Vec():
 		"n_document_topics": 15,
 		"n_embedding": 100, # embedding size
 
-		"batch_size": 264,
+		"batch_size": 4096,##264,
 		"window": 5,
 		"learning_rate": 1.0,#0.1,
 		"dropout_ratio": 0.8, # keep_prob
-		"word_dropout": 0., # dropout (?)
+		"word_dropout": 0.8, #1.
 
-		# "power": 0.75, # negative sampling power - TODO ?
+		"power": 0.75, # unigram sampler distortion TODO - not implemented
 		"n_samples": 15, # num negative samples
 
 		"temperature": 1.0, # embed mixture temp
@@ -44,12 +44,13 @@ class LDA2Vec():
 			# build graph
 			self.mixture = EmbedMixture(
 					n_documents, self.n_document_topics, self.n_embedding,
-					keep_prob=self.dropout_ratio, temperature=self.temperature)
+					temperature=self.temperature)
 			self.sampler = NegativeSampling(
-					self.n_embedding, n_vocab, self.n_samples)
+					self.n_embedding, n_vocab, self.n_samples, power=self.power)
 
 			handles = self._buildGraph() + (
-					self.mixture.W, self.mixture.factors, self.sampler.W)
+				self.mixture(), self.mixture.proportions(softmax=True),
+				self.mixture.factors, self.sampler.W)
 
 			for handle in handles:
 				tf.add_to_collection(LDA2Vec.RESTORE_KEY, handle)
@@ -68,11 +69,11 @@ class LDA2Vec():
 
 		# unpack tensor ops to feed or fetch
 		(self.pivot_idxs, self.doc_at_pivot, self.dropout, self.target_idxs,
-		 self.fraction,#self.n_corpus,
-		 self.loss_word2vec, self.loss_lda, self.update_accum_loss,
-		 self.reset_accum_loss, self.global_step, self.train_op,
-		 self.doc_embeds, self.topics, self.word_embeds) = handles
+		 self.fraction, self.loss_word2vec, self.loss_lda, self.update_accum_loss,
+		 self.reset_accum_loss, self.global_step, self.train_op, self.doc_embeds,
+		 self.doc_proportions, self.topics, self.word_embeds) = handles
 
+		self.log_dir = "{}_{}".format(log_dir, self.datetime)
 		if save_graph_def: # tensorboard
 			self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
 
@@ -89,23 +90,23 @@ class LDA2Vec():
 		pivot_idxs = tf.placeholder(tf.int32,
 									shape=[None,], # None enables variable batch size
 									name="pivot_idxs")
-		pivot = tf.nn.embedding_lookup(self.sampler.W, # word embeddings
-										pivot_idxs)
+		pivot = tf.nn.embedding_lookup(self.sampler.W, pivot_idxs) # word embedding
 
 		# doc
 		doc_at_pivot = tf.placeholder(tf.int32, shape=[None,], name="doc_ids")
-		doc = self.mixture(doc_at_pivot)#, update_only_docs=update_only_docs)
+		doc = self.mixture(doc_at_pivot) # doc embedding
+		#, update_only_docs=update_only_docs)
 
 		# context is sum of doc (mixture projected onto topics) & pivot embedding
-		dropout = tf.placeholder_with_default(1., shape=[], name="dropout")
+		dropout = self.mixture.dropout
 		context = tf.nn.dropout(doc, dropout) + tf.nn.dropout(pivot, dropout)
 
 		# targets
 		target_idxs = tf.placeholder(tf.int64, shape=[None,], name="target_idxs")
 
 		# NCE loss
-		# with tf.name_scope("nce_loss"):
-		with tf.name_scope("word2vec_loss"):
+		with tf.name_scope("nce_loss"):
+		# with tf.name_scope("word2vec_loss"):
 			loss_word2vec = self.sampler(context, target_idxs)
 			loss_word2vec = utils.print_(loss_word2vec, "loss_word2vec")
 
@@ -115,22 +116,19 @@ class LDA2Vec():
 			# accum_loss_word2vec = accum_loss_word2vec.assign_add(loss_word2vec)
 			# accum_loss_word2vec = utils.print_(accum_loss_word2vec, "word2vec_accum")
 
-			accum_loss_reset = accum_loss_word2vec.assign_sub(accum_loss_word2vec)
-			# reset_accum_loss = tf.assign(
-			# 		accum_loss_word2vec,
-			# 		tf.Variable(0, dtype=tf.float32, trainable=False))
+			# accum_loss_reset = accum_loss_word2vec.assign_sub(accum_loss_word2vec)
+			accum_loss_reset = tf.assign(accum_loss_word2vec,
+					tf.Variable(0, dtype=tf.float32, trainable=False))
 			# accum_loss_word2vec = utils.print_(accum_loss_word2vec,
 			# 								   "accum_loss_word2vec")
 
 
 		# dirichlet loss (proportional to minibatch fraction)
 		with tf.name_scope("lda_loss"):
-			# n_corpus = tf.placeholder(tf.int32, [], name="n_corpus")
 			fraction = tf.Variable(1, trainable=False, dtype=tf.float32)
-			# fraction = tf.cast(self.batch_size / n_corpus, tf.float32)
 			loss_lda = fraction * self.prior() # dirichlet log-likelihood
 			loss_lda = utils.print_(loss_lda, "loss_lda")
-			# TODO penalize weights ?
+			# TODO penalize weights ? alpha of prior ?
 
 		# optimize
 		global_step = tf.Variable(0, trainable=False)
@@ -157,7 +155,7 @@ class LDA2Vec():
 		window = (self.window if window is None else window)
 		pivot_idx = word_indices[window: -window]
 
-		# if update_only_docs: TODO ?
+		# if update_only_docs:
 			# pivot.unchain_backward()
 			# tf.stop_gradient(tensor) OR optimizer.minimize(loss, var_list=[your variables])
 
@@ -178,7 +176,8 @@ class LDA2Vec():
 			doc_at_target = doc_ids[start + frame: end + frame]
 			doc_is_same = doc_at_target == doc_at_pivot
 			rand = np.random.uniform(0, 1, doc_is_same.shape[0])
-			mask = (rand > self.word_dropout).astype("bool")
+			# mask = (rand > self.word_dropout).astype("bool")
+			mask = (rand < self.word_dropout).astype("bool")
 			weight = np.logical_and(doc_is_same, mask).astype("int32")
 
 			# If weight is 1.0 then targetidx
@@ -210,32 +209,13 @@ class LDA2Vec():
 		epoch = 0
 		# progress = shelve.open('progress.shelve') TODO ?
 
-		# feed_dict = {self.n_corpus: len(flattened)}
-		# _ = self.sesh.run(self.fra, feed_dict=feed_dict) # assign n_corpus
-		fraction = self.batch_size / len(flattened)
+		fraction = self.batch_size / len(flattened) # == batch / n_corpus
 		self.sesh.run(tf.assign(self.fraction, fraction))
 
 		now = datetime.now().isoformat()[11:]
 		print("------- Training begin: {} -------\n".format(now))
 
-		for epoch in range(max_epochs):
-			# data = prepare_topics( # TODO
-			# 	cuda.to_cpu(model.mixture.weights.W.data).copy(),
-			# 	cuda.to_cpu(model.mixture.factors.W.data).copy(),
-			# 	cuda.to_cpu(model.sampler.W.data).copy(),
-			# 	words)
-			# top_words = print_top_words_per_topic(data,do_print=False)
-
-			# if j % 100 == 0 and j > 100:
-				# coherence = topic_coherence(top_words)
-				# for j in range(n_topics):
-				# 	print j, coherence[(j, 'cv')]
-				# kw = dict(top_words=top_words, coherence=coherence, epoch=epoch)
-				# progress[str(epoch)] = pickle.dumps(kw)
-
-			# data['doc_lengths'] = doc_lengths
-			# data['term_frequency'] = term_frequency
-			# np.savez('topics.pyldavis', **data)
+		while epoch < max_epochs:
 
 			# doc_ids, word_idxs
 			for d, f in utils.chunks(self.batch_size, doc_ids, flattened):
@@ -243,10 +223,11 @@ class LDA2Vec():
 
 				loss_word2vec = self.fit_partial(d, f)
 
-				# feed_dict = {self.n_corpus: len(flattened)}
-				# fetches = [self.loss_lda, self.train_op]
-				# loss_lda, _ = self.sesh.run(fetches, feed_dict=feed_dict)
 				loss_lda, _ = self.sesh.run([self.loss_lda, self.train_op])
+				# loss_word2vec_b, loss_lda, _ = self.sesh.run([self.loss_word2vec,
+				# 											  self.loss_lda,
+				# 											  self.train_op])
+				# assert loss_word2vec == loss_word2vec_b
 
 				self.sesh.run(self.reset_accum_loss)
 
@@ -296,13 +277,14 @@ class LDA2Vec():
 
 		n = tf.placeholder_with_default(10, shape=None, name="n")
 
-		word_embed = self.word_embeds
-		topic_embed = self.topics
-		doc_embed = tf.matmul(tf.nn.softmax(self.doc_embeds), topic_embed)
+		# word_embed = self.word_embeds
+		# topic_embed = self.topics
+		# doc_embed = tf.matmul(tf.nn.softmax(self.doc_embeds), topic_embed)
 
 		normalized_embedding = dict()
 		for name, embedding in zip(("word", "topic", "doc"),
-								   (word_embed, topic_embed, doc_embed)):
+								   # (word_embed, topic_embed, doc_embed)):
+								   (self.word_embeds, self.topics, self.doc_embeds)):
 			norm = tf.sqrt(tf.reduce_sum(embedding**2, 1, keep_dims=True))
 			normalized_embedding[name] = embedding / norm
 
@@ -331,6 +313,7 @@ class LDA2Vec():
 		      in_ = "doc" or "word" or "topic" (corresponding to ids)
 		      vs = "doc" or "word" or "topic" (corresponding to embedding to compare)
 		"""
+		# TODO pass args for embed ids ?
 		while True:
 			try:
 				feed_dict = {self.idxs_in: ids, self.n: n}
