@@ -120,9 +120,15 @@ class LDA2Vec():
 			# TODO penalize weights ? alpha of prior ?
 
 		# optimize
-		loss = tf.identity(loss_word2vec + self.lmbda * loss_lda, "loss")
+		# loss = tf.identity(loss_word2vec + self.lmbda * loss_lda, "loss")
 
 		global_step = tf.Variable(0, trainable=False)
+
+		self.switch_loss = tf.Variable(0, trainable=False)
+		loss = tf.cond(global_step < self.switch_loss,
+					   lambda: loss_word2vec,
+					   lambda: loss_word2vec + self.lmbda * loss_lda)
+
 		train_op = tf.contrib.layers.optimize_loss(
 				loss, global_step, self.learning_rate, "Adam", clip_gradients=5.)
 
@@ -216,6 +222,11 @@ class LDA2Vec():
 
 		fraction = self.batch_size / len(flattened) # == batch / n_corpus
 		self.sesh.run(tf.assign(self.fraction, fraction))
+
+		# turn on LDA loss after 1 epoch of training
+		iters_per_epoch = (int(len(flattened) / self.batch_size) +
+						   np.ceil(len(flattened) % self.batch_size))
+		self.sesh.run(tf.assign(self.switch_loss, iters_per_epoch))
 
 		now = datetime.now().isoformat()[11:]
 		print("------- Training begin: {} -------\n".format(now))
