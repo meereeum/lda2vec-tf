@@ -43,14 +43,19 @@ class NegativeSampling():
 
 	IGNORE_LABEL_MAX = 1 # ignore any labels <=1 (OOV or skip)
 
-	def __init__(self, embedding_size, vocabulary_size, sample_size, W_in=None):
-		# via https://github.com/tensorflow/tensorflow/blob/r0.11/tensorflow/examples/tutorials/word2vec/word2vec_basic.py
-
+	def __init__(self, embedding_size, vocabulary_size, sample_size, power=1.,
+				 W_in=None):
 		self.vocab_size = vocabulary_size
 		self.sample_size = sample_size
+		self.power = power
 
+		# via https://github.com/tensorflow/tensorflow/blob/r0.11/tensorflow/examples/tutorials/word2vec/word2vec_basic.py
+
+		init_width = 0.5 / embedding_size
 		self.W = (tf.Variable( # word embeddings
-				tf.random_uniform([vocabulary_size, embedding_size], -1., 1.),
+				# tf.random_uniform([vocabulary_size, embedding_size], -1., 1.),
+				tf.random_uniform([vocabulary_size, embedding_size],
+								  -init_width, init_width),
 				name="word_embeddings") if W_in is None else W_in)
 
 		self.W = utils.print_(self.W, "embedding")
@@ -77,10 +82,17 @@ class NegativeSampling():
 			# time we evaluate the loss.
 			# By default this uses a log-uniform (Zipfian) distribution for sampling
 			# and therefore assumes labels are sorted - which they are!
+			# sampler = tf.nn.fixed_unigram_candidate_sampler(
+			# 		train_labels, num_true=1, num_sampled=self.sample_size,
+			# 		unique=True, range_max=self.vocab_size,
+			# 		num_reserved_ids=[0,1], # skip or OoV
+			# 		distortion=self.power, unigrams) # TODO
+
 			loss = tf.reduce_mean(
 					tf.nn.nce_loss(self.nce_weights, self.nce_biases,
-							embed, # summed doc and context embedding
-							train_labels, self.sample_size, self.vocab_size),
+								   embed, # summed doc and context embedding
+								   train_labels, self.sample_size, self.vocab_size),
+								   # sampled_values=sampler), # log-unigram if not specificed
 					name="nce_batch_loss")
 			# TODO negative sampling versus NCE
 			# TODO uniform vs. Zipf with exponent `distortion` param
