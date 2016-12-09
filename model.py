@@ -275,6 +275,8 @@ class LDA2Vec():
 						summary = self.sesh.run(merged)
 						self.logger.add_summary(summary, global_step=self.step)
 
+						self.logger.flush()
+
 					self.sesh.run(self.reset_accum_loss)
 
 				epoch += 1
