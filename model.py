@@ -271,11 +271,11 @@ class LDA2Vec():
 									   "{}_lda2vec".format(self.datetime))
 				saver.save(self.sesh, outfile, global_step=self.step)
 
-				try:
-					self.logger.flush()
-					self.logger.close()
-				except(AttributeError): # not logging
-					pass
+			try:
+				self.logger.flush()
+				self.logger.close()
+			except(AttributeError): # not logging
+				pass
 
 			sys.exit(0)
 
