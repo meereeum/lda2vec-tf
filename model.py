@@ -75,7 +75,7 @@ class LDA2Vec():
 
 		self.log_dir = "{}_{}".format(log_dir, self.datetime)
 		if save_graph_def: # tensorboard
-			self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
+			self.logger = tf.train.SummaryWriter(self.log_dir, self.sesh.graph)
 
 
 	@property
@@ -211,9 +211,9 @@ class LDA2Vec():
 		return accum_loss
 
 
-	def train(self, doc_ids, flattened, max_epochs=np.inf, verbose=True,
+	def train(self, doc_ids, flattened, max_epochs=np.inf, verbose=False,
 			  save=False, save_every=1000, outdir="./out", summarize=True,
-			  summarize_every=1000):#, summaries_dir="./summaries"):
+			  summarize_every=1000):
 
 		if save:
 			# outdir = "{}_{}".format(outdir, self.datetime)
@@ -221,8 +221,10 @@ class LDA2Vec():
 
 		if summarize:
 			merged = self._addSummaries()
-			# summarizer = tf.train.SummaryWriter(summaries_dir)
-			summarizer = tf.train.SummaryWriter(self.log_dir)
+			try:
+				self.logger.flush()
+			except(AttributeError): # not yet logging
+				self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
 
 		j = 0
 		epoch = 0
@@ -243,18 +245,11 @@ class LDA2Vec():
 				loss_word2vec = self.fit_partial(d, f)
 
 				loss_lda, _ = self.sesh.run([self.loss_lda, self.train_op])
-				# loss_word2vec_b, loss_lda, _ = self.sesh.run([self.loss_word2vec,
-				# 											  self.loss_lda,
-				# 											  self.train_op])
-				# assert loss_word2vec == loss_word2vec_b
-
-				self.sesh.run(self.reset_accum_loss)
+				# self.sesh.run(self.reset_accum_loss)
 
 				j += 1
 
 				if verbose and j % 1000 == 0:
-					# msg = ("J:{j:05d} E:{epoch:05d} L:{loss:1.3e} "
-					# 	"P:{prior:1.3e} R:{rate:1.3e}")
 					msg = ("J:{j:05d} E:{epoch:05d} L_nce:{l_word2vec:1.3e} "
 						   "L_dirichlet:{l_lda:1.3e} R:{rate:1.3e}")
 
@@ -273,7 +268,9 @@ class LDA2Vec():
 
 				if summarize and j % summarize_every == 0:
 					summary = self.sesh.run(merged)
-					summarizer.add_summary(summary, global_step=self.step)
+					self.logger.add_summary(summary, global_step=self.step)
+
+				self.sesh.run(self.reset_accum_loss)
 
 			epoch += 1
 
@@ -302,13 +299,8 @@ class LDA2Vec():
 
 		n = tf.placeholder_with_default(10, shape=None, name="n")
 
-		# word_embed = self.word_embeds
-		# topic_embed = self.topics
-		# doc_embed = tf.matmul(tf.nn.softmax(self.doc_embeds), topic_embed)
-
 		normalized_embedding = dict()
 		for name, embedding in zip(("word", "topic", "doc"),
-								   # (word_embed, topic_embed, doc_embed)):
 								   (self.word_embeds, self.topics, self.doc_embeds)):
 			norm = tf.sqrt(tf.reduce_sum(embedding**2, 1, keep_dims=True))
 			normalized_embedding[name] = embedding / norm
@@ -344,7 +336,7 @@ class LDA2Vec():
 				feed_dict = {self.idxs_in: ids, self.n: n}
 				fetches = self.similarities[(in_, vs)]
 				top_idxs, sims = self.sesh.run(fetches, feed_dict=feed_dict)
-				top_sims = sims[
+				top_sims = sims[ # select similarity to top matching idxs per id
 					tuple([i]*top_idxs.shape[1] for i in range(top_idxs.shape[0])),
 					 top_idxs]
 				return (top_idxs, top_sims)
