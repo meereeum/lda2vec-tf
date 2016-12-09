@@ -17,7 +17,7 @@ class LDA2Vec():
 		"n_document_topics": 15,
 		"n_embedding": 100, # embedding size
 
-		"batch_size": 4096,##264,
+		"batch_size": 400,#4096,##264,
 		"window": 5,
 		"learning_rate": 1.0,#0.1,
 		"dropout_ratio": 0.8, # keep_prob
@@ -28,7 +28,7 @@ class LDA2Vec():
 
 		"temperature": 1., # embed mixture temp
 		"lmbda": 200., # strength of Dirichlet prior
-		"alpha": None # alpha of Dirichlet process (defaults to 1/n_topics)
+		"alpha": None, # alpha of Dirichlet process (defaults to 1/n_topics)
 	}
 	RESTORE_KEY = "to_restore"
 
@@ -71,8 +71,8 @@ class LDA2Vec():
 		# unpack tensor ops to feed or fetch
 		(self.pivot_idxs, self.doc_at_pivot, self.dropout, self.target_idxs,
 		 self.fraction, self.loss_word2vec, self.loss_lda, self.loss,
-		 self.global_step, self.train_op, self.doc_embeds, self.doc_proportions,
-		 self.topics, self.word_embeds) = handles
+		 self.global_step, self.train_op, self.switch_loss, self.doc_embeds,
+		 self.doc_proportions, self.topics, self.word_embeds) = handles
 
 		self.log_dir = "{}_{}".format(log_dir, self.datetime)
 		if save_graph_def: # tensorboard
@@ -89,6 +89,8 @@ class LDA2Vec():
 
 	def _buildGraph(self):
 
+		global_step = tf.Variable(0, trainable=False)
+
 		# pivot word
 		pivot_idxs = tf.placeholder(tf.int32,
 									shape=[None,], # None enables variable batch size
@@ -101,7 +103,15 @@ class LDA2Vec():
 
 		# context is sum of doc (mixture projected onto topics) & pivot embedding
 		dropout = self.mixture.dropout
-		context = tf.nn.dropout(doc, dropout) + tf.nn.dropout(pivot, dropout)
+		switch_loss = tf.Variable(0, trainable=False)
+		# context = tf.nn.dropout(doc, dropout) + tf.nn.dropout(pivot, dropout)
+		# word_context = tf.nn.dropout(pivot, dropout)
+		contexts = (tf.nn.dropout(pivot, dropout), tf.nn.dropout(doc, dropout))
+		context = tf.cond(global_step < switch_loss,
+						  lambda: contexts[0],
+						  lambda: tf.add(*contexts))
+					   # lambda: word_context,
+					   # lambda: word_context + tf.nn.dropout(doc, dropout))
 
 		# targets
 		target_idxs = tf.placeholder(tf.int64, shape=[None,], name="target_idxs")
@@ -122,10 +132,10 @@ class LDA2Vec():
 		# optimize
 		# loss = tf.identity(loss_word2vec + self.lmbda * loss_lda, "loss")
 
-		global_step = tf.Variable(0, trainable=False)
+		# global_step = tf.Variable(0, trainable=False)
 
-		self.switch_loss = tf.Variable(0, trainable=False)
-		loss = tf.cond(global_step < self.switch_loss,
+		# self.switch_loss = tf.Variable(0, trainable=False)
+		loss = tf.cond(global_step < switch_loss,
 					   lambda: loss_word2vec,
 					   lambda: loss_word2vec + self.lmbda * loss_lda)
 
@@ -133,7 +143,7 @@ class LDA2Vec():
 				loss, global_step, self.learning_rate, "Adam", clip_gradients=5.)
 
 		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, fraction,
-				loss_word2vec, loss_lda, loss, global_step, train_op)
+				loss_word2vec, loss_lda, loss, global_step, train_op, switch_loss)
 
 
 	def prior(self):
@@ -200,10 +210,16 @@ class LDA2Vec():
 					 self.target_idxs: target_idxs[mask],
 					 self.dropout: self.dropout_ratio}
 
+		# feed_dict = {self.pivot_idxs: pivot_idxs,
+		# 			 self.doc_at_pivot: docs_at_pivot,
+		# 			 self.target_idxs: target_idxs,
+		# 			 self.dropout: self.dropout_ratio}
+
 		return feed_dict
 
 
 	def train(self, doc_ids, flattened, max_epochs=np.inf, verbose=False,
+			  loss_switch_epochs = 1, # num epochs until LDA loss switched on
 			  save=False, save_every=1000, outdir="./out", summarize=True,
 			  summarize_every=1000):
 
@@ -223,10 +239,11 @@ class LDA2Vec():
 		fraction = self.batch_size / len(flattened) # == batch / n_corpus
 		self.sesh.run(tf.assign(self.fraction, fraction))
 
-		# turn on LDA loss after 1 epoch of training
+		# turn on LDA loss after n iters of training
 		iters_per_epoch = (int(len(flattened) / self.batch_size) +
 						   np.ceil(len(flattened) % self.batch_size))
-		self.sesh.run(tf.assign(self.switch_loss, iters_per_epoch))
+		n = iters_per_epoch * loss_switch_epochs
+		self.sesh.run(tf.assign(self.switch_loss, n))
 
 		now = datetime.now().isoformat()[11:]
 		print("------- Training begin: {} -------\n".format(now))
