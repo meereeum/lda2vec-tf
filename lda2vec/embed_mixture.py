@@ -1,8 +1,6 @@
 import numpy as np
 import tensorflow as tf
 
-import utils
-
 
 def _orthogonal_matrix(shape):
 	# Stolen from blocks:

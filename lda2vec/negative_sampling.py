@@ -1,7 +1,5 @@
 import tensorflow as tf
 
-import utils
-
 
 class NegativeSampling():
 	"""Negative sampling loss function.
@@ -57,8 +55,6 @@ class NegativeSampling():
 				tf.random_uniform([vocabulary_size, embedding_size],
 								  -init_width, init_width),
 				name="word_embeddings") if W_in is None else W_in)
-
-		self.W = utils.print_(self.W, "embedding")
 
 		# Construct the variables for the NCE loss
 		self.nce_weights = tf.Variable(
