@@ -17,7 +17,7 @@ class LDA2Vec():
 		"n_document_topics": 15,
 		"n_embedding": 100, # embedding size
 
-		"batch_size": 4096,##264,
+		"batch_size": 264,#4096,##264,
 		"window": 5,
 		"learning_rate": 1.0,#0.1,
 		"dropout_ratio": 0.8, # keep_prob
@@ -77,7 +77,6 @@ class LDA2Vec():
 		self.log_dir = "{}_{}".format(log_dir, self.datetime)
 		if save_graph_def: # tensorboard
 			self.logger = tf.train.SummaryWriter(self.log_dir, self.sesh.graph)
-			self.logger.flush()
 
 
 	@property
@@ -217,15 +216,18 @@ class LDA2Vec():
 			  summarize_every=1000):
 
 		if save:
-			# outdir = "{}_{}".format(outdir, self.datetime)
 			saver = tf.train.Saver(tf.all_variables())
+			try:
+				os.mkdir(outdir)
+			except(FileExistsError):
+				pass
 
 		if summarize:
 			merged = self._addSummaries()
-			try:
-				self.logger.flush()
-			except(AttributeError): # not yet logging
-				self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
+			# try:
+			# 	self.logger.flush()
+			# except(AttributeError): # not yet logging
+			# 	self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
 
 		j = 0
 		epoch = 0
@@ -242,58 +244,60 @@ class LDA2Vec():
 
 				# doc_ids, word_idxs
 				for d, f in utils.chunks(self.batch_size, doc_ids, flattened):
-						t0 = datetime.now().timestamp()
+					t0 = datetime.now().timestamp()
 
-						loss_word2vec = self.fit_partial(d, f)
+					loss_word2vec = self.fit_partial(d, f)
 
-						loss_lda, _ = self.sesh.run([self.loss_lda, self.train_op])
-						# self.sesh.run(self.reset_accum_loss)
+					loss_lda, _ = self.sesh.run([self.loss_lda, self.train_op])
+					# self.sesh.run(self.reset_accum_loss)
 
-						j += 1
+					j += 1
 
-						if verbose and j % 1000 == 0:
-							msg = ("J:{j:05d} E:{epoch:05d} L_nce:{l_word2vec:1.3e} "
-								   "L_dirichlet:{l_lda:1.3e} R:{rate:1.3e}")
+					if verbose and j % 1000 == 0:
+						msg = ("J:{j:05d} E:{epoch:05d} L_nce:{l_word2vec:1.3e} "
+							   "L_dirichlet:{l_lda:1.3e} R:{rate:1.3e}")
 
-							t1 = datetime.now().timestamp()
-							dt = t1 - t0
-							rate = self.batch_size / dt
-							logs = dict(l_word2vec=loss_word2vec, epoch=epoch, j=j,
-										l_lda=loss_lda, rate=rate)
+						t1 = datetime.now().timestamp()
+						dt = t1 - t0
+						rate = self.batch_size / dt
+						logs = dict(l_word2vec=loss_word2vec, epoch=epoch, j=j,
+									l_lda=loss_lda, rate=rate)
 
-							print(msg.format(**logs))
+						print(msg.format(**logs))
 
-						if save and j % save_every == 0:
-							outfile = os.path.join(os.path.abspath(outdir),
-												   "{}_lda2vec".format(self.datetime))
-							saver.save(self.sesh, outfile, global_step=self.step)
+					if save and j % save_every == 0:
+						outfile = os.path.join(os.path.abspath(outdir),
+											   "{}_lda2vec".format(self.datetime))
+						saver.save(self.sesh, outfile, global_step=self.step)
 
-						if summarize and j % summarize_every == 0:
-							summary = self.sesh.run(merged)
-							self.logger.add_summary(summary, global_step=self.step)
+					if summarize and j % summarize_every == 0:
+						print("here!")
+						summary = self.sesh.run(merged)
+						self.logger.add_summary(summary, global_step=self.step)
 
-						self.sesh.run(self.reset_accum_loss)
+					self.sesh.run(self.reset_accum_loss)
 
 				epoch += 1
 
 		except(KeyboardInterrupt):
-			continue
-
-		now = datetime.now().isoformat()[11:]
-		print("------- Training end: {} -------\n".format(now))
-
-		if save:
-			outfile = os.path.join(os.path.abspath(outdir),
-								   "{}_lda2vec".format(self.datetime))
-			saver.save(self.sesh, outfile, global_step=self.step)
-
-		try:
-			self.logger.flush()
-			self.logger.close()
-		except(AttributeError): # not logging
 			pass
 
-		sys.exit(0)
+		finally:
+			now = datetime.now().isoformat()[11:]
+			print("------- Training end: {} -------\n".format(now))
+
+			if save:
+				outfile = os.path.join(os.path.abspath(outdir),
+										"{}_lda2vec".format(self.datetime))
+				saver.save(self.sesh, outfile, global_step=self.step)
+
+			try:
+				self.logger.flush()
+				self.logger.close()
+			except(AttributeError): # not logging
+				pass
+
+			sys.exit(0)
 
 
 	def _buildGraph_similarity(self):
