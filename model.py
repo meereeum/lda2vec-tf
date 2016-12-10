@@ -139,8 +139,14 @@ class LDA2Vec():
 					   lambda: loss_word2vec,
 					   lambda: loss_word2vec + self.lmbda * loss_lda)
 
-		train_op = tf.contrib.layers.optimize_loss(
-				loss, global_step, self.learning_rate, "Adam", clip_gradients=5.)
+		loss_avgs = tf.train.ExponentialMovingAverage(0.9)
+		loss_avgs_op = loss_avgs.apply([loss_lda, loss_word2vec, loss])
+
+		with tf.control_dependencies([loss_avgs_op]):
+			train_op = tf.contrib.layers.optimize_loss(
+					loss, global_step, self.learning_rate, "Adam", clip_gradients=5.)
+
+		self.loss_avgs = loss_avgs
 
 		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, fraction,
 				loss_word2vec, loss_lda, loss, global_step, train_op, switch_loss)
@@ -154,12 +160,20 @@ class LDA2Vec():
 		# summary nodes
 		tf.scalar_summary("loss_lda", self.loss_lda)
 		tf.scalar_summary("loss_nce", self.loss_word2vec)
+
+		tf.scalar_summary("loss_lda_avg", self.loss_avgs.average(self.loss_lda))
+		tf.scalar_summary("loss_nce_avg", self.loss_avgs.average(self.loss_word2vec))
+		tf.scalar_summary("loss_avg", self.loss_avgs.average(self.loss))
+
 		tf.histogram_summary("word_embeddings_hist", self.word_embeds)
 		tf.histogram_summary("topic_embeddings_hist", self.topics)
 		tf.histogram_summary("doc_embeddings_hist", self.doc_embeds)
+		tf.train.ExponentialMovingAverage
+
 		tf.scalar_summary("doc_mixture_sparsity",
 						  tf.nn.zero_fraction(self.doc_proportions))
 		# self.check = tf.add_check_numerics_ops()
+		# self.sesh.run(tf.initialize_variables(tf.moving_average_variables()))
 
 		return tf.merge_all_summaries()
 
@@ -218,6 +232,7 @@ class LDA2Vec():
 		return feed_dict
 
 
+
 	def train(self, doc_ids, flattened, max_epochs=np.inf, verbose=False,
 			  loss_switch_epochs = 1, # num epochs until LDA loss switched on
 			  save=False, save_every=1000, outdir="./out", summarize=True,
@@ -258,8 +273,8 @@ class LDA2Vec():
 					feed_dict = self.make_feed_dict(d, f)
 
 					fetches = [self.loss_lda, self.loss_word2vec,
-							   self.loss, merged, self.train_op]
-					loss_lda, loss_word2vec, loss, summary, _ = self.sesh.run(
+							   self.loss, self.train_op]
+					loss_lda, loss_word2vec, loss, _ = self.sesh.run(
 						fetches, feed_dict=feed_dict)
 
 					j += 1
@@ -282,6 +297,7 @@ class LDA2Vec():
 						saver.save(self.sesh, outfile, global_step=self.step)
 
 					if summarize and j % summarize_every == 0:
+						summary = self.sesh.run(merged, feed_dict=feed_dict)
 						self.logger.add_summary(summary, global_step=self.step)
 
 				epoch += 1
