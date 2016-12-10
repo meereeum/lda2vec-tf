@@ -235,7 +235,12 @@ class LDA2Vec():
 			  summarize_every=1000):
 
 		if save:
+			try:
+				os.mkdir(outdir)
+			except(FileExistsError):
+				pass
 			saver = tf.train.Saver(tf.all_variables())
+			outdir = os.path.abspath(outdir)
 
 		if summarize:
 			merged = self._addSummaries()
@@ -288,8 +293,8 @@ class LDA2Vec():
 						print(msg.format(**logs))
 
 					if save and j % save_every == 0:
-						outfile = os.path.join(os.path.abspath(outdir),
-												"{}_lda2vec".format(self.datetime))
+						outfile = os.path.join(outdir,
+											   "{}_lda2vec".format(self.datetime))
 						saver.save(self.sesh, outfile, global_step=self.step)
 
 					if summarize and j % summarize_every == 0:
@@ -307,8 +312,7 @@ class LDA2Vec():
 		print("------- Training end: {} -------\n".format(now))
 
 		if save:
-			outfile = os.path.join(os.path.abspath(outdir),
-								   "{}_lda2vec".format(self.datetime))
+			outfile = os.path.join(outdir, "{}_lda2vec".format(self.datetime))
 			saver.save(self.sesh, outfile, global_step=self.step)
 
 		try:
