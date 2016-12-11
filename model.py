@@ -29,6 +29,8 @@ class LDA2Vec():
 		"temperature": 1., # embed mixture temp
 		"lmbda": 200., # strength of Dirichlet prior
 		"alpha": None, # alpha of Dirichlet process (defaults to 1/n_topics)
+
+		"freqs": None
 	}
 	RESTORE_KEY = "to_restore"
 
@@ -49,7 +51,8 @@ class LDA2Vec():
 					n_documents, self.n_document_topics, self.n_embedding,
 					temperature=self.temperature)
 			self.sampler = NegativeSampling(
-					self.n_embedding, n_vocab, self.n_samples, power=self.power)
+					self.n_embedding, n_vocab, self.n_samples, power=self.power,
+					freqs=self.freqs)
 
 			handles = self._buildGraph() + (
 				self.mixture(), self.mixture.proportions(softmax=True),
