@@ -32,8 +32,10 @@ class LDA2Vec():
 	}
 	RESTORE_KEY = "to_restore"
 
-	def __init__(self, n_documents, n_vocab, d_hyperparams={},#train=True,counts=None
+	def __init__(self, n_documents=None, n_vocab=None, d_hyperparams={},#train=True,counts=None
 				 meta_graph=None, save_graph_def=True, log_dir="./log"):
+
+		assert not (n_documents is None and n_vocab is None and meta_graph is None)
 
 		self.__dict__.update(LDA2Vec.DEFAULTS, **d_hyperparams)
 		tf.reset_default_graph()
