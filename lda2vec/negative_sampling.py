@@ -83,12 +83,12 @@ class NegativeSampling():
 			# time we evaluate the loss.
 			# By default this uses a log-uniform (Zipfian) distribution for sampling
 			# and therefore assumes labels are sorted - which they are!
-			sampler = (freqs if freqs is None else
+			sampler = (self.freqs if self.freqs is None else
 					   tf.nn.fixed_unigram_candidate_sampler(
 							   train_labels, num_true=1, num_sampled=self.sample_size,
 							   unique=True, range_max=self.vocab_size,
-							   num_reserved_ids=[0,1], # skip or OoV
-							   distortion=self.power, unigrams=freqs)) # TODO
+							   #num_reserved_ids=2, # skip or OoV
+							   distortion=self.power, unigrams=list(self.freqs)))
 
 			loss = tf.reduce_mean(
 					tf.nn.nce_loss(self.nce_weights, self.nce_biases,
