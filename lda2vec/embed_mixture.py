@@ -62,7 +62,7 @@ class EmbedMixture():
 		scalar = 1 / np.sqrt(n_documents + n_topics)
 
 		self.W = (tf.Variable( # unnormalized embedding weights
-			tf.random_normal([n_documents, n_topics], mean=0, stddev=scalar),
+			tf.random_normal([n_documents, n_topics], mean=0, stddev=50*scalar),
 				name="doc_embeddings") if W_in is None else W_in)
 
 		factors = (tf.Variable( # topic vectors
@@ -90,6 +90,9 @@ class EmbedMixture():
 		# defaults to returning full set of embedded doc proportions
 		# doc embed weights -> multinomial
 		proportions = self.proportions(doc_ids, softmax=True)
+
+		#with tf.control_dependencies([tf.assert_positive(proportions)]):
+			#proportions = utils.print_(proportions,"proportions")
 
 		# ?
 		# if update_only_docs:
