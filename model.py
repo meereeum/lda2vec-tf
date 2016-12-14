@@ -17,7 +17,11 @@ class LDA2Vec():
 		"n_document_topics": 15,
 		"n_embedding": 100, # embedding size
 
+<<<<<<< HEAD
 		"batch_size": 500,#4096,##264,
+=======
+		"batch_size": 264,#4096,##264,
+>>>>>>> a2380f7048c934dfff53305dd104326cb5b12358
 		"window": 5,
 		"learning_rate": 1.0,#0.1,
 		"dropout_ratio": 0.8, # keep_prob
@@ -124,6 +128,15 @@ class LDA2Vec():
 			loss_word2vec = self.sampler(context, target_idxs)
 			loss_word2vec = utils.print_(loss_word2vec, "loss_word2vec")
 
+<<<<<<< HEAD
+=======
+			accum_loss_word2vec = tf.Variable(0, dtype=tf.float32, trainable=False)
+
+			accum_loss_update = accum_loss_word2vec.assign_add(loss_word2vec)
+			accum_loss_reset = tf.assign(accum_loss_word2vec,
+					tf.Variable(0, dtype=tf.float32, trainable=False))
+
+>>>>>>> a2380f7048c934dfff53305dd104326cb5b12358
 		# dirichlet loss (proportional to minibatch fraction)
 		with tf.name_scope("lda_loss"):
 			fraction = tf.Variable(1, trainable=False, dtype=tf.float32)
@@ -181,6 +194,10 @@ class LDA2Vec():
 
 		window = (self.window if window is None else window)
 		pivot_idx = word_indices[window: -window]
+<<<<<<< HEAD
+=======
+
+>>>>>>> a2380f7048c934dfff53305dd104326cb5b12358
 		doc_at_pivot = doc_ids[window: -window]
 
 		start, end = window, word_indices.shape[0] - window
@@ -201,7 +218,11 @@ class LDA2Vec():
 
 			rand = np.random.uniform(0, 1, doc_is_same.shape[0])
 			mask = (rand < self.word_dropout)
+<<<<<<< HEAD
 			weight = np.logical_and(doc_is_same, mask).astype(np.int32)
+=======
+			weight = np.logical_and(doc_is_same, mask).astype("int32")
+>>>>>>> a2380f7048c934dfff53305dd104326cb5b12358
 
 			# If weight is 1.0 then targetidx
 			# If weight is 0.0 then -1
@@ -225,6 +246,7 @@ class LDA2Vec():
 					 self.target_idxs: target_idxs[mask],
 					 self.dropout: self.dropout_ratio}
 
+<<<<<<< HEAD
 		# feed_dict = {self.pivot_idxs: pivot_idxs,
 		# 			 self.doc_at_pivot: docs_at_pivot,
 		# 			 self.target_idxs: target_idxs,
@@ -232,6 +254,9 @@ class LDA2Vec():
 
 		return feed_dict
 
+=======
+		return accum_loss
+>>>>>>> a2380f7048c934dfff53305dd104326cb5b12358
 
 
 	def train(self, doc_ids, flattened, max_epochs=np.inf, verbose=False,
@@ -240,12 +265,20 @@ class LDA2Vec():
 			  summarize_every=1000):
 
 		if save:
+<<<<<<< HEAD
 			try:
 				os.mkdir(outdir)
 			except(FileExistsError):
 				pass
 			saver = tf.train.Saver(tf.all_variables())
 			outdir = os.path.abspath(outdir)
+=======
+			saver = tf.train.Saver(tf.all_variables())
+			try:
+				os.mkdir(outdir)
+			except(FileExistsError):
+				pass
+>>>>>>> a2380f7048c934dfff53305dd104326cb5b12358
 
 		if summarize:
 			merged = self._addSummaries()
@@ -275,6 +308,7 @@ class LDA2Vec():
 				# doc_ids, word_idxs
 				for d, f in utils.chunks(self.batch_size, doc_ids, flattened):
 					t0 = datetime.now().timestamp()
+<<<<<<< HEAD
 
 					feed_dict = self.make_feed_dict(d, f)
 
@@ -319,14 +353,63 @@ class LDA2Vec():
 		if save:
 			outfile = os.path.join(outdir, "{}_lda2vec".format(self.datetime))
 			saver.save(self.sesh, outfile, global_step=self.step)
+=======
 
-		try:
-			self.logger.flush()
-			self.logger.close()
-		except(AttributeError): # not logging
+					loss_word2vec = self.fit_partial(d, f)
+
+					loss_lda, _ = self.sesh.run([self.loss_lda, self.train_op])
+					# self.sesh.run(self.reset_accum_loss)
+
+					j += 1
+
+					if verbose and j % 1000 == 0:
+						msg = ("J:{j:05d} E:{epoch:05d} L_nce:{l_word2vec:1.3e} "
+							   "L_dirichlet:{l_lda:1.3e} R:{rate:1.3e}")
+
+						t1 = datetime.now().timestamp()
+						dt = t1 - t0
+						rate = self.batch_size / dt
+						logs = dict(l_word2vec=loss_word2vec, epoch=epoch, j=j,
+									l_lda=loss_lda, rate=rate)
+
+						print(msg.format(**logs))
+
+					if save and j % save_every == 0:
+						outfile = os.path.join(os.path.abspath(outdir),
+											   "{}_lda2vec".format(self.datetime))
+						saver.save(self.sesh, outfile, global_step=self.step)
+
+					if summarize and j % summarize_every == 0:
+						print("here!")
+						summary = self.sesh.run(merged)
+						self.logger.add_summary(summary, global_step=self.step)
+
+						self.logger.flush()
+
+					self.sesh.run(self.reset_accum_loss)
+
+				epoch += 1
+
+		except(KeyboardInterrupt):
 			pass
 
-		sys.exit(0)
+		finally:
+			now = datetime.now().isoformat()[11:]
+			print("------- Training end: {} -------\n".format(now))
+
+			if save:
+				outfile = os.path.join(os.path.abspath(outdir),
+										"{}_lda2vec".format(self.datetime))
+				saver.save(self.sesh, outfile, global_step=self.step)
+>>>>>>> a2380f7048c934dfff53305dd104326cb5b12358
+
+			try:
+				self.logger.flush()
+				self.logger.close()
+			except(AttributeError): # not logging
+				pass
+
+			sys.exit(0)
 
 
 	def _buildGraph_similarity(self):
