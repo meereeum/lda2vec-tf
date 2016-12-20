@@ -90,17 +90,11 @@ class EmbedMixture():
 		# doc embed weights -> multinomial
 		proportions = self.proportions(doc_ids, softmax=True)
 
-		#with tf.control_dependencies([tf.assert_positive(proportions)]):
-			#proportions = utils.print_(proportions,"proportions")
-
-		# ?
-		# if update_only_docs:
-		# 	factors.unchain_backward()
-
 		# (batchsize, n_factors) * (n_factors, n_dim) --> (batchsize, n_dim)
 		# topic weights projected onto topic vectors
 		w_sum = tf.matmul(proportions, self.factors)
 		return w_sum
+
 
 	def proportions(self, doc_ids=None, softmax=False):
 		""" Given an array of document indices, return a vector
