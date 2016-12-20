@@ -2,21 +2,21 @@ import numpy as np
 import tensorflow as tf
 
 
-def _orthogonal_matrix(shape):
-	# Stolen from blocks:
-	# github.com/mila-udem/blocks/blob/master/blocks/initialization.py
-	M1 = np.random.randn(shape[0], shape[0])
-	M2 = np.random.randn(shape[1], shape[1])
+# def _orthogonal_matrix(shape):
+# 	# Stolen from blocks:
+# 	# github.com/mila-udem/blocks/blob/master/blocks/initialization.py
+# 	M1 = np.random.randn(shape[0], shape[0])
+# 	M2 = np.random.randn(shape[1], shape[1])
 
-	# QR decomposition of matrix with entries in N(0, 1) is random
-	Q1, R1 = np.linalg.qr(M1)
-	Q2, R2 = np.linalg.qr(M2)
-	# Correct that NumPy doesn"t force diagonal of R to be non-negative
-	Q1 = Q1 * np.sign(np.diag(R1))
-	Q2 = Q2 * np.sign(np.diag(R2))
+# 	# QR decomposition of matrix with entries in N(0, 1) is random
+# 	Q1, R1 = np.linalg.qr(M1)
+# 	Q2, R2 = np.linalg.qr(M2)
+# 	# Correct that NumPy doesn"t force diagonal of R to be non-negative
+# 	Q1 = Q1 * np.sign(np.diag(R1))
+# 	Q2 = Q2 * np.sign(np.diag(R2))
 
-	n_min = min(shape[0], shape[1])
-	return np.dot(Q1[:, :n_min], Q2[:n_min, :])
+# 	n_min = min(shape[0], shape[1])
+# 	return np.dot(Q1[:, :n_min], Q2[:n_min, :])
 
 
 class EmbedMixture():
@@ -63,16 +63,17 @@ class EmbedMixture():
 			tf.random_normal([n_documents, n_topics], mean=0, stddev=50*scalar),
 				name="doc_embeddings") if W_in is None else W_in)
 
-		factors = (tf.Variable( # topic vectors
-				_orthogonal_matrix((n_topics, n_dim)).astype("float32") * scalar,
-				name="topics") if factors_in is None else factors_in)
-		self.factors = tf.nn.dropout(factors, self.dropout)
+		# factors = (tf.Variable( # topic vectors
+		# 		_orthogonal_matrix((n_topics, n_dim)).astype("float32") * scalar,
+		# 		name="topics") if factors_in is None else factors_in)
 
 		# tf 0.12.0 only
-		# self.factors = (tf.get_variable("topics", shape=(n_topics, n_dim),
-		# 								dtype=tf.float32, initializer=
-		# 								tf.orthogonal_initializer(gain=scalar))
-		# 				if factors_in is None else factors_in)
+		factors = (tf.get_variable("topics", shape=(n_topics, n_dim),
+								   dtype=tf.float32, initializer=
+								   tf.orthogonal_initializer(gain=scalar))
+				   if factors_in is None else factors_in)
+		self.factors = tf.nn.dropout(factors, self.dropout)
+
 
 	def __call__(self, doc_ids=None, update_only_docs=False):
 		""" Given an array of document integer indices, returns a vector
