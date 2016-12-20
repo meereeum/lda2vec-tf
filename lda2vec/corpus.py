@@ -229,12 +229,14 @@ class Corpus():
 			# Find first index with count less than min_count
 			min_idx = np.argmax(not_specials & (self.keys_counts < min_count))
 			# Replace all indices greater than min_idx
-			ret[ret > min_idx] = min_replacement
+			# ret[ret > min_idx] = min_replacement
+			ret[ret >= min_idx] = min_replacement # fix off-by-one error
 		if max_count:
 			# Find first index with count less than max_count
 			max_idx = np.argmax(not_specials & (self.keys_counts < max_count))
 			# Replace all indices less than max_idx
-			ret[ret < max_idx] = max_replacement
+			# ret[ret < max_idx] = max_replacement
+			ret[ret <= min_idx] = min_replacement # fix off-by-one error
 		return ret
 
 	def subsample_frequent(self, words_compact, threshold=1e-5):
@@ -367,61 +369,61 @@ class Corpus():
 		loose = fast_replace(word_compact, self.keys_compact, self.keys_loose)
 		return loose
 
-	# def compact_to_flat(self, word_compact, *components):
-	# 	""" Ravel a 2D compact array of documents (rows) and word
-	# 	positions (columns) into a 1D array of words. Leave out special
-	# 	tokens and ravel the component arrays in the same fashion.
+	def compact_to_flat(self, word_compact, *components):
+		""" Ravel a 2D compact array of documents (rows) and word
+		positions (columns) into a 1D array of words. Leave out special
+		tokens and ravel the component arrays in the same fashion.
 
-	# 	Arguments
-	# 	---------
-	# 	word_compact : int array
-	# 		Array of word indices in documents. Has shape (n_docs, max_length)
-	# 	components : list of arrays
-	# 		A list of arrays detailing per-document properties. Each array
-	# 		must n_docs long.
+		Arguments
+		---------
+		word_compact : int array
+			Array of word indices in documents. Has shape (n_docs, max_length)
+		components : list of arrays
+			A list of arrays detailing per-document properties. Each array
+			must n_docs long.
 
-	# 	Returns
-	# 	-------
-	# 	flat : int array
-	# 		An array of all words unravelled into a 1D shape
-	# 	components : list of arrays
-	# 		Each array here is also unravelled into the same shape
+		Returns
+		-------
+		flat : int array
+			An array of all words unravelled into a 1D shape
+		components : list of arrays
+			Each array here is also unravelled into the same shape
 
-	# 	Examples
-	# 	--------
-	# 	>>> corpus = Corpus()
-	# 	>>> word_indices = np.random.randint(100, size=1000)
-	# 	>>> corpus.update_word_count(word_indices)
-	# 	>>> corpus.finalize()
-	# 	>>> doc_texts = np.arange(8).reshape((2, 4))
-	# 	>>> doc_texts[:, -1] = -2  # Mark as skips
-	# 	>>> doc_ids = np.arange(2)
-	# 	>>> compact = corpus.to_compact(doc_texts)
-	# 	>>> oov = corpus.specials_to_compact['out_of_vocabulary']
-	# 	>>> compact[1, 3] = oov  # Mark the last word as OOV
-	# 	>>> flat = corpus.compact_to_flat(compact)
-	# 	>>> flat.shape[0] == 6  # 2 skips were dropped from 8 words
-	# 	True
-	# 	>>> flat[-1] == corpus.loose_to_compact[doc_texts[1, 2]]
-	# 	True
-	# 	>>> flat, (flat_id,) = corpus.compact_to_flat(compact, doc_ids)
-	# 	>>> flat_id
-	# 	array([0, 0, 0, 1, 1, 1])
-	# 	"""
-	# 	self._check_finalized()
-	# 	n_docs = word_compact.shape[0]
-	# 	max_length = word_compact.shape[1]
-	# 	idx = word_compact > self.n_specials
-	# 	components_raveled = []
-	# 	msg = "Length of each component must much `word_compact` size"
-	# 	for component in components:
-	# 		raveled = np.tile(component[:, None], max_length)[idx]
-	# 		components_raveled.append(raveled)
-	# 		assert len(component) == n_docs, msg
-	# 	if len(components_raveled) == 0:
-	# 		return word_compact[idx]
-	# 	else:
-	# 		return word_compact[idx], components_raveled
+		Examples
+		--------
+		>>> corpus = Corpus()
+		>>> word_indices = np.random.randint(100, size=1000)
+		>>> corpus.update_word_count(word_indices)
+		>>> corpus.finalize()
+		>>> doc_texts = np.arange(8).reshape((2, 4))
+		>>> doc_texts[:, -1] = -2  # Mark as skips
+		>>> doc_ids = np.arange(2)
+		>>> compact = corpus.to_compact(doc_texts)
+		>>> oov = corpus.specials_to_compact['out_of_vocabulary']
+		>>> compact[1, 3] = oov  # Mark the last word as OOV
+		>>> flat = corpus.compact_to_flat(compact)
+		>>> flat.shape[0] == 6  # 2 skips were dropped from 8 words
+		True
+		>>> flat[-1] == corpus.loose_to_compact[doc_texts[1, 2]]
+		True
+		>>> flat, (flat_id,) = corpus.compact_to_flat(compact, doc_ids)
+		>>> flat_id
+		array([0, 0, 0, 1, 1, 1])
+		"""
+		self._check_finalized()
+		n_docs = word_compact.shape[0]
+		max_length = word_compact.shape[1]
+		idx = word_compact > self.n_specials
+		components_raveled = []
+		msg = "Length of each component must much `word_compact` size"
+		for component in components:
+			raveled = np.tile(component[:, None], max_length)[idx]
+			components_raveled.append(raveled)
+			assert len(component) == n_docs, msg
+		if len(components_raveled) == 0:
+			return word_compact[idx]
+		else:
+			return word_compact[idx], components_raveled
 
 	def word_list(self, vocab, max_compact_index=None, oov_token='<OoV>'):
 		""" Translate compact keys back into string representations for a word.
