@@ -1,0 +1,9 @@
+*pycache*
+.ipynb_checkpoints
+*pyc
+*swp
+*txt
+!requirements.txt
+log
+*pkl
+*npy
