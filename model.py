@@ -4,6 +4,7 @@ import sys
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib.tensorboard.plugins import projector
 
 from lda2vec import dirichlet_likelihood
 from lda2vec import EmbedMixture
@@ -17,31 +18,56 @@ class LDA2Vec():
 		"n_document_topics": 15,
 		"n_embedding": 100, # embedding size
 
-		"batch_size": 264,#4096,##264,
+		"batch_size": 500,
 		"window": 5,
-		"learning_rate": 1.0,#0.1,
+		"learning_rate": 1E-3,
 		"dropout_ratio": 0.8, # keep_prob
 		"word_dropout": 0.8, #1.
 
-		"power": 0.75, # unigram sampler distortion TODO - not implemented
-		"n_samples": 50,#15, # num negative samples
+		"power": 0.75, # unigram sampler distortion
+		"n_samples": 50, # num negative samples
 
 		"temperature": 1., # embed mixture temp
 		"lmbda": 200., # strength of Dirichlet prior
 		"alpha": None, # alpha of Dirichlet process (defaults to 1/n_topics)
-
-		"freqs": None
 	}
 	RESTORE_KEY = "to_restore"
 
-	def __init__(self, n_documents=None, n_vocab=None, d_hyperparams={},#train=True,counts=None
+	def __init__(self, n_documents=None, n_vocab=None, d_hyperparams={},
+				 freqs=None, w_in=None, fixed_words=False, word2vec_only=False,
 				 meta_graph=None, save_graph_def=True, log_dir="./log"):
+		"""
+		Initialize LDA2Vec model from parameters or saved `meta_graph`
 
-		assert not (n_documents is None and n_vocab is None and meta_graph is None)
+		Args:
+		    n_documents (int)
+		    n_vocab (int)
+		    d_hyperparams (dict): model hyperparameters
+
+		    freqs (list or np.array): iterable of word frequencies for candidate sampler
+		                              (None defaults to unigram sampler)
+		    w_in (np.array): pre-trained word embeddings (n_vocab x n_embedding)
+
+		    fixed_words (bool): train doc and topic weights only?
+		    word2vec_only (bool): word2vec context and objective only?
+
+		    meta_graph (str): path/to/saved/meta_graph (without `.meta`)
+
+		    save_graph_def (bool): save graph_def to file?
+		    log_dir (str): path/to/logging/outputs
+
+		"""
+
+		assert not (n_documents is None and n_vocab is None and meta_graph is None), (
+				"Must initialize new model or pass saved meta_graph")
+		assert not (fixed_words and w_in is None), (
+				"If fixing words, must supply pre-trained word embeddings")
+		assert not (fixed_words and word2vec_only), ("Nothing to train here...")
 
 		self.__dict__.update(LDA2Vec.DEFAULTS, **d_hyperparams)
 		tf.reset_default_graph()
 		self.sesh = tf.Session()
+		self.moving_avgs = tf.train.ExponentialMovingAverage(0.9)
 
 		if not meta_graph: # new model
 			self.datetime = datetime.now().strftime(r"%y%m%d_%H%M")
@@ -50,17 +76,23 @@ class LDA2Vec():
 			self.mixture = EmbedMixture(
 					n_documents, self.n_document_topics, self.n_embedding,
 					temperature=self.temperature)
+
+			# optionally, pass in pre-trained non/trainable word embeddings
+			if w_in is not None:
+				assert n_vocab == w_in.shape[0], "Word embeddings must match vocab size"
+			W_in = (w_in if w_in is None else (tf.constant(w_in) if fixed_words
+											   else tf.Variable(w_in)))
 			self.sampler = NegativeSampling(
 					self.n_embedding, n_vocab, self.n_samples, power=self.power,
-					freqs=self.freqs)
+					freqs=freqs, W_in=W_in)
 
-			handles = self._buildGraph() + (
+			handles = self._buildGraph(word2vec_only=word2vec_only) + (
 				self.mixture(), self.mixture.proportions(softmax=True),
 				self.mixture.factors, self.sampler.W)
 
 			for handle in handles:
 				tf.add_to_collection(LDA2Vec.RESTORE_KEY, handle)
-			self.sesh.run(tf.initialize_all_variables())
+				self.sesh.run(tf.global_variables_initializer())
 
 		else: # restore saved model
 			datetime_prev, _ = os.path.basename(meta_graph).split("_lda2vec")
@@ -81,17 +113,16 @@ class LDA2Vec():
 
 		self.log_dir = "{}_{}".format(log_dir, self.datetime)
 		if save_graph_def: # tensorboard
-			self.logger = tf.train.SummaryWriter(self.log_dir, self.sesh.graph)
+			self.logger = tf.summary.FileWriter(self.log_dir, self.sesh.graph)
 
 
 	@property
 	def step(self):
 		"""Train step"""
 		return self.sesh.run(self.global_step)
-		# return tf.train.global_step(self.sesh, self.global_step)
 
 
-	def _buildGraph(self):
+	def _buildGraph(self, word2vec_only=False):
 
 		global_step = tf.Variable(0, trainable=False)
 
@@ -108,49 +139,43 @@ class LDA2Vec():
 		# context is sum of doc (mixture projected onto topics) & pivot embedding
 		dropout = self.mixture.dropout
 		switch_loss = tf.Variable(0, trainable=False)
+
 		# context = tf.nn.dropout(doc, dropout) + tf.nn.dropout(pivot, dropout)
-		# word_context = tf.nn.dropout(pivot, dropout)
 		contexts = (tf.nn.dropout(pivot, dropout), tf.nn.dropout(doc, dropout))
-		context = tf.cond(global_step < switch_loss,
+		context = (tf.cond(global_step < switch_loss,
 						  lambda: contexts[0],
-						  lambda: tf.add(*contexts))
+						  lambda: tf.add(*contexts)) if not word2vec_only
+				   else contexts[0])
 
 		# targets
 		target_idxs = tf.placeholder(tf.int64, shape=[None,], name="target_idxs")
 
 		# NCE loss
 		with tf.name_scope("nce_loss"):
-		# with tf.name_scope("word2vec_loss"):
 			loss_word2vec = self.sampler(context, target_idxs)
 			loss_word2vec = utils.print_(loss_word2vec, "loss_word2vec")
-
-			accum_loss_word2vec = tf.Variable(0, dtype=tf.float32, trainable=False)
-
-			accum_loss_update = accum_loss_word2vec.assign_add(loss_word2vec)
-			accum_loss_reset = tf.assign(accum_loss_word2vec,
-					tf.Variable(0, dtype=tf.float32, trainable=False))
 
 		# dirichlet loss (proportional to minibatch fraction)
 		with tf.name_scope("lda_loss"):
 			fraction = tf.Variable(1, trainable=False, dtype=tf.float32)
-			loss_lda = fraction * self.prior() # dirichlet log-likelihood
+			#loss_lda = fraction * self.prior() # dirichlet log-likelihood
+			loss_lda = self.lmbda * fraction * self.prior() # dirichlet log-likelihood
 			loss_lda = utils.print_(loss_lda, "loss_lda")
-			# TODO penalize weights ? alpha of prior ?
 
 		# optimize
-		# loss = tf.identity(loss_word2vec + self.lmbda * loss_lda, "loss")
-		loss = tf.cond(global_step < switch_loss,
+		#loss = tf.identity(loss_word2vec + self.lmbda * loss_lda, "loss")
+		# loss = tf.identity(loss_word2vec + loss_lda, "loss")
+		loss = (tf.cond(global_step < switch_loss,
 					   lambda: loss_word2vec,
-					   lambda: loss_word2vec + self.lmbda * loss_lda)
+					   lambda: loss_word2vec + loss_lda) if not word2vec_only
+					   # lambda: loss_word2vec + self.lmbda * loss_lda)
+				else tf.identity(loss_word2vec)) # avoid duplicating moving avg (ValueError)
 
-		loss_avgs = tf.train.ExponentialMovingAverage(0.9)
-		loss_avgs_op = loss_avgs.apply([loss_lda, loss_word2vec, loss])
+		loss_avgs_op = self.moving_avgs.apply([loss_lda, loss_word2vec, loss])
 
 		with tf.control_dependencies([loss_avgs_op]):
 			train_op = tf.contrib.layers.optimize_loss(
 					loss, global_step, self.learning_rate, "Adam", clip_gradients=5.)
-
-		self.loss_avgs = loss_avgs
 
 		return (pivot_idxs, doc_at_pivot, dropout, target_idxs, fraction,
 				loss_word2vec, loss_lda, loss, global_step, train_op, switch_loss)
@@ -160,26 +185,45 @@ class LDA2Vec():
 		# defaults to inialization with uniform prior (1/n_topics)
 		return dirichlet_likelihood(self.mixture.W, alpha=self.alpha)
 
-	def _addSummaries(self):
+
+	def _addSummaries(self, metadata="metadata.tsv",
+					  metadata_docs="metadata.genomes.tsv"):
 		# summary nodes
-		tf.scalar_summary("loss_lda", self.loss_lda)
-		tf.scalar_summary("loss_nce", self.loss_word2vec)
+		tf.summary.scalar("loss_lda", self.loss_lda)
+		tf.summary.scalar("loss_nce", self.loss_word2vec)
 
-		tf.scalar_summary("loss_lda_avg", self.loss_avgs.average(self.loss_lda))
-		tf.scalar_summary("loss_nce_avg", self.loss_avgs.average(self.loss_word2vec))
-		tf.scalar_summary("loss_avg", self.loss_avgs.average(self.loss))
+		tf.summary.scalar("loss_lda_avg", self.moving_avgs.average(self.loss_lda))
+		tf.summary.scalar("loss_nce_avg", self.moving_avgs.average(self.loss_word2vec))
+		tf.summary.scalar("loss_avg", self.moving_avgs.average(self.loss))
 
-		tf.histogram_summary("word_embeddings_hist", self.word_embeds)
-		tf.histogram_summary("topic_embeddings_hist", self.topics)
-		tf.histogram_summary("doc_embeddings_hist", self.doc_embeds)
-		tf.train.ExponentialMovingAverage
+		tf.summary.histogram("word_embeddings_hist", self.word_embeds)
+		tf.summary.histogram("topic_embeddings_hist", self.topics)
+		tf.summary.histogram("doc_embeddings_hist", self.doc_embeds)
 
-		tf.scalar_summary("doc_mixture_sparsity",
+		tf.summary.scalar("doc_mixture_sparsity",
 						  tf.nn.zero_fraction(self.doc_proportions))
-		# self.check = tf.add_check_numerics_ops()
-		# self.sesh.run(tf.initialize_variables(tf.moving_average_variables()))
 
-		return tf.merge_all_summaries()
+		# viz
+		config = projector.ProjectorConfig()
+
+		embedding = config.embeddings.add()
+		embedding.tensor_name = self.word_embeds.name
+		embedding.metadata_path = os.path.join(self.log_dir, metadata)
+
+		topic_embedding = config.embeddings.add()
+		topic_embedding.tensor_name = self.topics.name
+
+		doc_embedding = config.embeddings.add()
+		doc_embedding.tensor_name = self.doc_embeds.name
+		doc_embedding.metadata_path = os.path.join(self.log_dir, metadata_docs)
+
+		doc_props = config.embeddings.add()
+		doc_props.tensor_name = self.doc_proportions.name
+		doc_props.metadata_path = os.path.join(self.log_dir, metadata_docs)
+
+		projector.visualize_embeddings(self.logger, config)
+
+		return tf.summary.merge_all()
 
 
 	def make_feed_dict(self, doc_ids, word_indices, window=None,
@@ -187,7 +231,6 @@ class LDA2Vec():
 
 		window = (self.window if window is None else window)
 		pivot_idx = word_indices[window: -window]
-
 		doc_at_pivot = doc_ids[window: -window]
 
 		start, end = window, word_indices.shape[0] - window
@@ -209,6 +252,9 @@ class LDA2Vec():
 			rand = np.random.uniform(0, 1, doc_is_same.shape[0])
 			mask = (rand < self.word_dropout)
 			weight = np.logical_and(doc_is_same, mask).astype(np.int32)
+
+			# If weight is 1.0 then targetidx
+			# If weight is 0.0 then -1
 			target_idx = target_idx * weight + -1 * (1 - weight)
 
 			target_idxs.append(target_idx)
@@ -218,11 +264,12 @@ class LDA2Vec():
 		target_idxs = np.concatenate(target_idxs)
 
 		# ignore training points due to OOV or dropout
-		# TODO set OOV token once and for all
+		# TODO set OOV token globally
 		LAST_OOV_TOKEN = 1
 		# mask = np.logical_and((target_idxs > 0), (pivot_idxs > 0))
 		mask = np.logical_and((target_idxs > LAST_OOV_TOKEN),
 							  (pivot_idxs > LAST_OOV_TOKEN))
+		# assert sum(mask) > 0, "At least one example must not be masked"
 
 		feed_dict = {self.pivot_idxs: pivot_idxs[mask],
 					 self.doc_at_pivot: docs_at_pivot[mask],
@@ -232,25 +279,27 @@ class LDA2Vec():
 		return feed_dict
 
 
+
 	def train(self, doc_ids, flattened, max_epochs=np.inf, verbose=False,
-			  loss_switch_epochs = 1, # num epochs until LDA loss switched on
+			  loss_switch_epochs=0, # num epochs until LDA loss switched on
 			  save=False, save_every=1000, outdir="./out", summarize=True,
-			  summarize_every=1000):
+			  summarize_every=1000, metadata="metadata.tsv",
+			  metadata_docs="metadata.genomes.tsv"):
 
 		if save:
 			try:
 				os.mkdir(outdir)
 			except(FileExistsError):
 				pass
-			saver = tf.train.Saver(tf.all_variables())
-			outdir = os.path.abspath(outdir)
+			saver = tf.train.Saver(tf.global_variables())
+			outdir = os.path.abspath(self.log_dir)
 
 		if summarize:
-			merged = self._addSummaries()
+			merged = self._addSummaries(metadata, metadata_docs)
 			try:
 				self.logger.flush()
 			except(AttributeError): # not yet logging
-				self.logger = tf.train.SummaryWriter(log_dir, self.sesh.graph)
+				self.logger = tf.summary.FileWriter(self.log_dir, self.sesh.graph)
 
 		j = 0
 		epoch = 0
@@ -275,6 +324,10 @@ class LDA2Vec():
 					t0 = datetime.now().timestamp()
 
 					feed_dict = self.make_feed_dict(d, f)
+
+					# if len(feed_dict[self.pivot_idxs]) == 0:
+					# 	print("Empty batch. Skipping...")
+					# 	continue
 
 					fetches = [self.loss_lda, self.loss_word2vec,
 							   self.loss, self.train_op]
@@ -318,13 +371,13 @@ class LDA2Vec():
 			outfile = os.path.join(outdir, "{}_lda2vec".format(self.datetime))
 			saver.save(self.sesh, outfile, global_step=self.step)
 
-			try:
-				self.logger.flush()
-				self.logger.close()
-			except(AttributeError): # not logging
-				pass
+		try:
+			self.logger.flush()
+			self.logger.close()
+		except(AttributeError): # not logging
+			pass
 
-			sys.exit(0)
+		sys.exit(0)
 
 
 	def _buildGraph_similarity(self):
@@ -368,7 +421,6 @@ class LDA2Vec():
 		      in_ = "doc" or "word" or "topic" (corresponding to ids)
 		      vs = "doc" or "word" or "topic" (corresponding to embedding to compare)
 		"""
-		# TODO pass args for embed ids ?
 		while True:
 			try:
 				feed_dict = {self.idxs_in: ids, self.n: n}
@@ -384,7 +436,7 @@ class LDA2Vec():
 				 self.similarities) = self._buildGraph_similarity()
 
 
-	# def validate(self, doc_ids, flattened, save=False):
+	# def validate(self, doc_ids, flattened, save=False): TODO ?
 
 	# 	loss_word2vec = self.fit_partial(doc_ids, flattened)
 
