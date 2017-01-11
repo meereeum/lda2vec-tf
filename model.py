@@ -187,7 +187,7 @@ class LDA2Vec():
 
 
 	def _addSummaries(self, metadata="metadata.tsv",
-					  metadata_docs="metadata.genomes.tsv"):
+					  metadata_docs="metadata.docs.tsv"):
 		# summary nodes
 		tf.summary.scalar("loss_lda", self.loss_lda)
 		tf.summary.scalar("loss_nce", self.loss_word2vec)
@@ -284,7 +284,7 @@ class LDA2Vec():
 			  loss_switch_epochs=0, # num epochs until LDA loss switched on
 			  save=False, save_every=1000, outdir="./out", summarize=True,
 			  summarize_every=1000, metadata="metadata.tsv",
-			  metadata_docs="metadata.genomes.tsv"):
+			  metadata_docs="metadata.docs.tsv"):
 
 		if save:
 			try:
@@ -295,11 +295,11 @@ class LDA2Vec():
 			outdir = os.path.abspath(self.log_dir)
 
 		if summarize:
-			merged = self._addSummaries(metadata, metadata_docs)
 			try:
 				self.logger.flush()
 			except(AttributeError): # not yet logging
 				self.logger = tf.summary.FileWriter(self.log_dir, self.sesh.graph)
+			merged = self._addSummaries(metadata, metadata_docs)
 
 		j = 0
 		epoch = 0
