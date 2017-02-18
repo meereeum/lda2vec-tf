@@ -1,5 +1,5 @@
 # lda2vec-tf
-TensorFlow implementation of Christopher Moody's *lda2vec*, a hybrid of
+TensorFlow implementation of Christopher Moody's [*lda2vec*](https://github.com/cemoody/lda2vec), a hybrid of
 [Latent Dirichlet Allocation](https://www.cs.princeton.edu/~blei/papers/BleiNgJordan2003.pdf) &
 [*word2vec*](https://papers.nips.cc/paper/5021-distributed-representations-of-words-and-phrases-and-their-compositionality.pdf)
 
@@ -9,6 +9,8 @@ The *lda2vec* model simultaneously learns embeddings (continuous dense vector re
 * documents (as sparse distributions over topics).
 
 \[ \+ integrated with the tf Embeddings Projector to interactively visualize results \]
+
+![](tf_graph.png)
 
 ## WIP
 Check back for updated docs and a walk-through example.
