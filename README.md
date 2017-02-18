@@ -10,7 +10,7 @@ The *lda2vec* model simultaneously learns embeddings (continuous dense vector re
 
 \[ \+ integrated with the tf Embeddings Projector to interactively visualize results \]
 
-![](tf_graph.png)
+![lda2vec computational graph](tf_graph.png)
 
 ## WIP
 Check back for updated docs and a walk-through example.
