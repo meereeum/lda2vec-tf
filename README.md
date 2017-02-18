@@ -4,7 +4,7 @@ TensorFlow implementation of Christopher Moody's [*lda2vec*](https://github.com/
 [*word2vec*](https://papers.nips.cc/paper/5021-distributed-representations-of-words-and-phrases-and-their-compositionality.pdf)
 
 The *lda2vec* model simultaneously learns embeddings (continuous dense vector representations) for:
-* words,
+* words (based on word and document context),
 * topics (in the same latent word space), and
 * documents (as sparse distributions over topics).
 
